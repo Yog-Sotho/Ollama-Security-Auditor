@@ -1,0 +1,251 @@
+# 🛡️ Ollama Security Audit Report
+**Generated:** 2026-04-09_211856
+
+
+## 🎯 Target Profile
+| Property | Value |
+| :--- | :--- |
+| **Target Host** | `http://157.245.166.204:11434` |
+| **IP:PORT** | `157.245.166.204:11434` |
+| **Detected Version** | `0.12.1` |
+| **Status** | ✅ AUDIT COMPLETED |
+
+## 📦 Discovered Models
+- **Installed (5):**
+  - `smollm2:135m`
+  - `llama3.2:3b`
+  - `qwen2.5:7b-instruct-q4_0`
+  - `qwen3:4b`
+  - `phi3:mini`
+- **Loaded (0):**
+  - None
+
+## 📊 Summary Statistics
+- 🔴 **Critical:** 3
+- 🟠 **High:** 6
+- 🟡 **Medium:** 4
+- 🔵 **Low:** 5
+- ⚪ **Info:** 1
+
+## 📋 Findings Detail
+
+### 🔴 Authentication Bypass
+- **Status:** ❌ VULNERABLE
+- **Details:** API endpoints accessible without auth: /api/tags, /api/ps
+- **Remediation:** Place Ollama behind a reverse proxy with authentication.
+- **Evidence:
+  ```json
+  {
+  "exposed_endpoints": [
+    "/api/tags",
+    "/api/ps"
+  ]
+}
+  ```
+---
+
+### 🔴 Modelfile RCE Probe
+- **Status:** ❌ VULNERABLE
+- **Details:** Server accepted Modelfile with RUN command. Potential RCE vector if sandboxing is misconfigured.
+- **Remediation:** Disable /api/create in production or enforce strict model signing.
+- **Evidence:
+  ```json
+  {
+  "status": 200,
+  "payload_accepted": true
+}
+  ```
+---
+
+### 🔴 Token/Key Brute-Force
+- **Status:** ❌ VULNERABLE
+- **Details:** Authentication bypassed with weak/default token: ollama
+- **Remediation:** Implement strong API keys or OAuth2. Disable default credentials.
+- **Evidence:
+  ```json
+  {
+  "accepted_token": "ollama"
+}
+  ```
+---
+
+### 🟠 CVE Check: NVD: CVE-2024-37032 `[CVE-2024-37032]`
+- **Status:** ❌ VULNERABLE
+- **Details:** Ollama before 0.1.34 does not validate the format of the digest (sha256 with 64 hex digits) when getting the model path, and thus mishandles the TestGetBlobsPath test cases such as fewer than 64 hex digits, more than 64 hex digits, or an initial ../ substring. | Matches range >=0.0.0
+- **Remediation:** Consult NVD for patch details.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.0.0",
+  "source": "NVD"
+}
+  ```
+---
+
+### 🟠 CVE Check: NVD: CVE-2024-45436 `[CVE-2024-45436]`
+- **Status:** ❌ VULNERABLE
+- **Details:** extractFromZipFile in model.go in Ollama before 0.1.47 can extract members of a ZIP archive outside of the parent directory. | Matches range >=0.0.0
+- **Remediation:** Consult NVD for patch details.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.0.0",
+  "source": "NVD"
+}
+  ```
+---
+
+### 🟠 CVE Check: NVD: CVE-2024-39719 `[CVE-2024-39719]`
+- **Status:** ❌ VULNERABLE
+- **Details:** An issue was discovered in Ollama through 0.3.14. File existence disclosure can occur via api/create. When calling the CreateModel route with a path parameter that does not exist, it reflects the "File does not exist" error message to the attacker, providing a primitive for file existence on the server. | Matches range >=0.0.0
+- **Remediation:** Consult NVD for patch details.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.0.0",
+  "source": "NVD"
+}
+  ```
+---
+
+### 🟠 CVE Check: NVD: CVE-2024-39720 `[CVE-2024-39720]`
+- **Status:** ❌ VULNERABLE
+- **Details:** An issue was discovered in Ollama before 0.1.46. An attacker can use two HTTP requests to upload a malformed GGUF file containing just 4 bytes starting with the GGUF custom magic header. By leveraging a custom Modelfile that includes a FROM statement pointing to the attacker-controlled blob file, the attacker can crash the application through the CreateModel route, leading to a segmentation fault (signal SIGSEGV: segmentation violation). | Matches range >=0.0.0
+- **Remediation:** Consult NVD for patch details.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.0.0",
+  "source": "NVD"
+}
+  ```
+---
+
+### 🟠 Information Disclosure
+- **Status:** ❌ VULNERABLE
+- **Details:** Model enumeration successful (5 models); Active process monitoring exposed (0 loaded models)
+- **Remediation:** Restrict /api/tags and /api/ps via reverse proxy.
+- **Evidence:
+  ```json
+  {
+  "disclosures": [
+    "Model enumeration successful (5 models)",
+    "Active process monitoring exposed (0 loaded models)"
+  ]
+}
+  ```
+---
+
+### 🟠 Dangerous Endpoint Exposure
+- **Status:** ❌ VULNERABLE
+- **Details:** Destructive/modify endpoints accessible: /api/delete (DELETE), /api/pull (POST), /api/push (POST).
+- **Remediation:** Disable or firewall /api/delete, /api/pull, /api/push.
+- **Evidence:
+  ```json
+  {
+  "exposed_endpoints": [
+    "/api/delete (DELETE)",
+    "/api/pull (POST)",
+    "/api/push (POST)"
+  ]
+}
+  ```
+---
+
+### 🟡 CVE Check: Environment Variable Exposure `[GHSA-x9hg-5q6g-q3jr]`
+- **Status:** ⚠️ WARNING
+- **Details:** Verbose errors may expose OLLAMA_ variables. | Verbose error responses exposed
+- **Remediation:** Set OLLAMA_DEBUG=0 in production.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.1.0,<0.5.0",
+  "source": "static"
+}
+  ```
+---
+
+### 🟡 CVE Check: NVD: CVE-2024-28224 `[CVE-2024-28224]`
+- **Status:** ⚠️ WARNING
+- **Details:** Ollama before 0.1.29 has a DNS rebinding vulnerability that can inadvertently allow remote access to the full API, thereby letting an unauthorized user chat with a large language model, delete a model, or cause a denial of service (resource exhaustion). | Matches range >=0.0.0
+- **Remediation:** Consult NVD for patch details.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1",
+  "affected_range": ">=0.0.0",
+  "source": "NVD"
+}
+  ```
+---
+
+### 🟡 Sensitive Data Risk (smollm2:135m)
+- **Status:** ⚠️ WARNING
+- **Details:** System prompt extracted for 'smollm2:135m'.
+- **Remediation:** Restrict /api/show access via auth.
+- **Evidence:
+  ```json
+  {
+  "model": "smollm2:135m"
+}
+  ```
+---
+
+### 🟡 Sensitive Data Risk (qwen2.5:7b-instruct-q4_0)
+- **Status:** ⚠️ WARNING
+- **Details:** System prompt extracted for 'qwen2.5:7b-instruct-q4_0'.
+- **Remediation:** Restrict /api/show access via auth.
+- **Evidence:
+  ```json
+  {
+  "model": "qwen2.5:7b-instruct-q4_0"
+}
+  ```
+---
+
+### 🔵 CORS Misconfiguration
+- **Status:** ✅ SECURE
+- **Details:** CORS headers appear restrictive.
+- **Remediation:** Verify config.
+---
+
+### 🔵 WAF & Rate Limit Detection
+- **Status:** ✅ SECURE
+- **Details:** No WAF or rate limiting headers detected.
+- **Remediation:** Consider implementing API rate limiting.
+---
+
+### 🔵 Model Weight Exfiltration
+- **Status:** ✅ SECURE
+- **Details:** Blob endpoint returned non-200 status.
+- **Remediation:** Maintain current restrictions.
+---
+
+### 🔵 Streaming DoS Risk
+- **Status:** ✅ SECURE
+- **Details:** Streaming probe timed out or rejected.
+- **Remediation:** Verify timeout configurations.
+---
+
+### 🔵 Cloud Metadata SSRF
+- **Status:** ✅ SECURE
+- **Details:** Cloud metadata endpoints blocked or unreachable.
+- **Remediation:** Maintain SSRF protections.
+---
+
+### ⚪ API Connectivity & Version Detection
+- **Status:** ✅ SECURE
+- **Details:** Ollama API reachable. Detected Version: 0.12.1
+- **Remediation:** Restrict access.
+- **Evidence:
+  ```json
+  {
+  "version": "0.12.1"
+}
+  ```
+---
