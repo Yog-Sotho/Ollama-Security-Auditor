@@ -6,7 +6,7 @@
 
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![Asyncio](https://img.shields.io/badge/Architecture-Asyncio-purple.svg)](https://docs.python.org/3/library/asyncio.html)
-[![Version](https://img.shields.io/badge/Version-1.4.0-green.svg)](https://github.com/YogSotho)
+[![Version](https://img.shields.io/badge/Version-1.5.0-green.svg)](https://github.com/YogSotho)
 
 ## 🔍 Overview
 **Ollama Security Auditor** is a professional-grade toolkit designed for security researchers, pentesters, and DevOps engineers. It identifies misconfigurations, known CVEs, and exposure risks in locally hosted or publicly accessible Ollama API endpoints (default port 11434).
