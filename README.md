@@ -1,3 +1,5 @@
+<div align="center">
+  <img src="logo.jpeg" alt="Brainbrew Logo" width="420" style="margin-bottom: 20px;">
 # 🛡️ Ollama Security Auditor v1.4.0
 
 > *A fast, async-native security testing framework for exposed Ollama API instances, CVE vulenrabilities and advanced probes.*
