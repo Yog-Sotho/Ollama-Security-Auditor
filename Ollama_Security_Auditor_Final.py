@@ -858,17 +858,41 @@ class OllamaSecurityAuditor:
         self.findings.extend([auth_result, info_result, cors_result, dangerous_result])
         
         print("🧪 Running advanced probes...", file=sys.stderr)
+        # Run independent advanced probes concurrently to drastically reduce scan latency
+        results = await asyncio.gather(
+            self.check_model_weight_exfil(session),
+            self.check_streaming_dos(session),
+            self.check_modelfile_rce(session),
+            self.check_cloud_metadata_ssrf(session),
+            self.check_token_brute(session),
+            self.check_prompt_injection_leakage(session),
+            self.extract_model_configs(session),
+            return_exceptions=True
+        )
+
+        # Unpack results and handle potential exceptions gracefully
+        probe_indices = [
+            ("check_model_weight_exfil", 0, "append"),
+            ("check_streaming_dos", 1, "append"),
+            ("check_modelfile_rce", 2, "append"),
+            ("check_cloud_metadata_ssrf", 3, "append"),
+            ("check_token_brute", 4, "append"),
+            ("check_prompt_injection_leakage", 5, "extend"),
+            ("extract_model_configs", 6, "extend")
+        ]
+
+        for name, idx, op in probe_indices:
+            res = results[idx]
+            if isinstance(res, Exception):
+                logger.error(f"Probe {name} failed during concurrent execution: {res}")
+            elif res:
+                if op == "append":
+                    self.findings.append(res)
+                elif op == "extend":
+                    self.findings.extend(res)
+
+        # Evaluate WAF and Rate Limiting state after all active requests have completed
         self.findings.append(await self.check_waf_rate_limit())
-        self.findings.append(await self.check_model_weight_exfil(session))
-        self.findings.append(await self.check_streaming_dos(session))
-        self.findings.append(await self.check_modelfile_rce(session))
-        self.findings.append(await self.check_cloud_metadata_ssrf(session))
-        self.findings.append(await self.check_token_brute(session))
-        
-        prompt_findings = await self.check_prompt_injection_leakage(session)
-        self.findings.extend(prompt_findings)
-        config_findings = await self.extract_model_configs(session)
-        self.findings.extend(config_findings)
         
         self.stats = {"total_checks": len(self.findings)}
         for s in Severity: self.stats[s.value] = sum(1 for f in self.findings if f.severity == s)
