@@ -279,7 +279,8 @@ class OllamaSecurityAuditor:
         endpoint: str,
         headers: Optional[Dict[str, str]] = None,
         json_payload: Optional[Dict] = None,
-        timeout_override: Optional[float] = None
+        timeout_override: Optional[float] = None,
+        read_body: bool = True
     ) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
         """Execute HTTP request with strict error handling, retry logic, and rate-limit awareness"""
         url = f"{self.base_url}{endpoint}"
@@ -308,8 +309,10 @@ class OllamaSecurityAuditor:
                             await asyncio.sleep(retry_after)
                             retry_count += 1
                             continue
-                    try: body = await response.json()
-                    except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
+                    body = None
+                    if read_body:
+                        try: body = await response.json()
+                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
                     return status, body, url
             except asyncio.TimeoutError:
                 return None, None, url
@@ -475,7 +478,7 @@ class OllamaSecurityAuditor:
         endpoints = ["/api/tags", "/api/ps"]
         accessible = []
         for ep in endpoints:
-            status, _, _ = await self._safe_request(session, "GET", ep)
+            status, _, _ = await self._safe_request(session, "GET", ep, read_body=False)
             if status == 200: accessible.append(ep)
                 
         if accessible:
@@ -545,7 +548,7 @@ class OllamaSecurityAuditor:
         for endpoint, method in dangerous_eps.items():
             payload = {"name": "nonexistent-model-test-123", "stream": False}
             if endpoint == "/api/push": payload["insecure"] = True
-            status, _, _ = await self._safe_request(session, method, endpoint, json_payload=payload)
+            status, _, _ = await self._safe_request(session, method, endpoint, json_payload=payload, read_body=False)
             if status not in [401, 403, 405, 502]: exposed.append(f"{endpoint} ({method})")
                 
         if exposed:
@@ -589,6 +592,13 @@ class OllamaSecurityAuditor:
             if status == 200 and config_body:
                 safe_name = re.sub(r'[^\w\-_\.]', '_', model_name).strip('_')
                 prompt_path = os.path.join(prompts_dir, f"{safe_name}.md")
+
+                # Defense-in-depth: Ensure path is strictly inside prompts_dir to prevent directory traversal
+                abs_prompts_dir = os.path.abspath(prompts_dir)
+                abs_prompt_path = os.path.abspath(prompt_path)
+                if not abs_prompt_path.startswith(abs_prompts_dir + os.sep) and abs_prompt_path != abs_prompts_dir:
+                    logger.error(f"Directory traversal attempt detected in model name: {model_name}")
+                    continue
 
                 # Extract fields – they are already full strings, no truncation
                 system_prompt = str(config_body.get("system", ""))
@@ -687,7 +697,7 @@ class OllamaSecurityAuditor:
         if not digest.startswith("sha256:"): digest = f"sha256:{digest}"
             
         blob_url = f"/api/blobs/{digest}"
-        b_status, _, _ = await self._safe_request(session, "GET", blob_url)
+        b_status, _, _ = await self._safe_request(session, "GET", blob_url, read_body=False)
         
         if b_status == 200:
             return AuditFinding(
@@ -800,7 +810,7 @@ class OllamaSecurityAuditor:
         vulnerable = []
         for token in common_tokens:
             headers = {"Authorization": token}
-            s, _, _ = await self._safe_request(session, "GET", "/api/tags", headers=headers)
+            s, _, _ = await self._safe_request(session, "GET", "/api/tags", headers=headers, read_body=False)
             if s == 200:
                 vulnerable.append(token)
                 break
