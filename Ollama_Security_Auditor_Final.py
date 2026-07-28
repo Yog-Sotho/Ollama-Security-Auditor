@@ -874,6 +874,38 @@ class OllamaSecurityAuditor:
         for s in Severity: self.stats[s.value] = sum(1 for f in self.findings if f.severity == s)
         duration = time.time() - start_time
         print(f"\n📝 Audit completed in {duration:.2f} seconds", file=sys.stderr)
+
+        # Micro-UX: Console-friendly results summary
+        print("\n" + "=" * 70, file=sys.stderr)
+        print("📊 AUDIT FINDINGS SUMMARY", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+
+        severity_colors = {
+            Severity.CRITICAL: "🔴 [CRITICAL]",
+            Severity.HIGH: "🟠 [HIGH]    ",
+            Severity.MEDIUM: "🟡 [MEDIUM]  ",
+            Severity.LOW: "🔵 [LOW]     ",
+            Severity.INFO: "⚪ [INFO]     "
+        }
+
+        stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
+        print(f"Summary: {stats_line}", file=sys.stderr)
+        print("-" * 70, file=sys.stderr)
+
+        actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING)]
+        if actionable_findings:
+            print("⚠️  Action Required - Vulnerable/Warning Findings:", file=sys.stderr)
+            severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
+            sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
+            for f in sorted_actionable:
+                status_lbl = "VULNERABLE" if f.status == CheckStatus.VULNERABLE else "WARNING"
+                print(f"  {severity_colors[f.severity]} {f.check_name} ({status_lbl})", file=sys.stderr)
+                print(f"    └─ Details: {f.details}", file=sys.stderr)
+                print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
+        else:
+            print("✅ All checked items are SECURE! No actions required.", file=sys.stderr)
+        print("=" * 70 + "\n", file=sys.stderr)
+
         return self.findings
 
     def generate_report(self, findings: List[AuditFinding], output_path: str, format_type: str = 'md') -> str:
@@ -933,7 +965,16 @@ class OllamaSecurityAuditor:
             
             for f in sorted_findings:
                 emoji = "🔴" if f.severity == Severity.CRITICAL else "🟠" if f.severity == Severity.HIGH else "🟡" if f.severity == Severity.MEDIUM else "🔵" if f.severity == Severity.LOW else "⚪"
-                status_emoji = "❌ VULNERABLE" if f.status == CheckStatus.VULNERABLE else "⚠️ WARNING" if f.status == CheckStatus.WARNING else "✅ SECURE"
+                if f.status == CheckStatus.VULNERABLE:
+                    status_emoji = "❌ VULNERABLE"
+                elif f.status == CheckStatus.WARNING:
+                    status_emoji = "⚠️ WARNING"
+                elif f.status == CheckStatus.ERROR:
+                    status_emoji = "💥 ERROR"
+                elif f.status == CheckStatus.SKIPPED:
+                    status_emoji = "⏭️ SKIPPED"
+                else:
+                    status_emoji = "✅ SECURE"
                 cve_tag = f" `[{f.cve_id}]`" if f.cve_id else ""
                 lines.append(f"### {emoji} {f.check_name}{cve_tag}")
                 lines.append(f"- **Status:** {status_emoji}")
