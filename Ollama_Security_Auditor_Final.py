@@ -120,12 +120,17 @@ def resolve_target_url(target: str) -> str:
 def validate_ip_range_static(ip_range: str) -> List[str]:
     """Validates and expands a single IP range into individual IPs (IPv4 Only)."""
     ips = []
+    MAX_IP_RANGE_LIMIT = 65536  # Upper limit to prevent memory exhaustion (OOM) Self-DoS
     try:
         network = IPv4Network(ip_range, strict=False)
+        if network.num_addresses > MAX_IP_RANGE_LIMIT:
+            raise ValueError(f"IP range too large: {network.num_addresses} addresses. Maximum allowed is {MAX_IP_RANGE_LIMIT} to prevent memory exhaustion.")
         if not network.is_private:
             logger.warning(f"⚠️ Scanning PUBLIC range: {ip_range}. Ensure permission!")
         return [str(ip) for ip in network]
-    except ValueError:
+    except ValueError as e:
+        if "Maximum allowed is" in str(e):
+            raise
         pass
     
     if '-' in ip_range:
@@ -143,10 +148,16 @@ def validate_ip_range_static(ip_range: str) -> List[str]:
                 if int(start_ip) <= int(end_ip):
                     current = int(start_ip)
                     end = int(end_ip)
+                    num_ips = end - current + 1
+                    if num_ips > MAX_IP_RANGE_LIMIT:
+                        raise ValueError(f"IP range too large: {num_ips} addresses. Maximum allowed is {MAX_IP_RANGE_LIMIT} to prevent memory exhaustion.")
                     while current <= end:
                         ips.append(str(IPv4Address(current)))
                         current += 1
                     return ips
+            except ValueError as e:
+                if "Maximum allowed is" in str(e):
+                    raise
             except Exception:
                 pass
     try:
