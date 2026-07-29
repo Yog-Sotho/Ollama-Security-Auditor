@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import re
 
 import aiohttp
-from Ollama_Security_Auditor_Final import OllamaSecurityAuditor, CheckStatus, Severity
+from Ollama_Security_Auditor_Final import OllamaSecurityAuditor, CheckStatus, Severity, validate_ip_range_static
 
 # Context manager mock for aiohttp request
 class MockRequestCtx:
@@ -155,6 +155,26 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
 
         # Verify that the directory itself was not escaped
         self.assertEqual(len(os.listdir(self.prompts_dir)), 0)
+
+    def test_validate_ip_range_static_limits(self):
+        """Test that validate_ip_range_static prevents OOM via large range limits."""
+        # 1. Safe CIDR range should pass
+        ips = validate_ip_range_static("192.168.1.0/24")
+        self.assertEqual(len(ips), 256)
+
+        # 2. Too large CIDR range should raise ValueError
+        with self.assertRaises(ValueError) as ctx:
+            validate_ip_range_static("10.0.0.0/8")
+        self.assertIn("IP range too large", str(ctx.exception))
+
+        # 3. Safe hyphen range should pass
+        ips = validate_ip_range_static("192.168.1.1-100")
+        self.assertEqual(len(ips), 100)
+
+        # 4. Too large hyphen range should raise ValueError
+        with self.assertRaises(ValueError) as ctx:
+            validate_ip_range_static("10.0.0.1-10.5.0.1")
+        self.assertIn("IP range too large", str(ctx.exception))
 
 if __name__ == "__main__":
     unittest.main()
