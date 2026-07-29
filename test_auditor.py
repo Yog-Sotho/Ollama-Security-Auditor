@@ -137,3 +137,17 @@ def test_run_audit_terminal_summary(capsys, monkeypatch):
     assert "MEDIUM:" in captured
     assert "LOW:" in captured
     assert "INFO:" in captured
+
+
+@pytest.mark.asyncio
+async def test_run_probe_with_feedback(capsys):
+    auditor = OllamaSecurityAuditor(target_url="localhost")
+
+    async def dummy_probe():
+        return "success"
+
+    res = await auditor._run_probe_with_feedback(dummy_probe(), "Test Probe")
+    assert res == "success"
+
+    captured = sys.stderr.getvalue() if hasattr(sys.stderr, "getvalue") else capsys.readouterr().err
+    assert "✨ Completed: Test Probe" in captured
