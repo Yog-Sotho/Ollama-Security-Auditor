@@ -827,6 +827,16 @@ class OllamaSecurityAuditor:
             details="Weak/default tokens rejected.", remediation="Verify credential rotation policies."
         )
 
+    async def _run_probe_with_feedback(self, coro, name: str):
+        """Helper to run a probe concurrently and print a clean CLI completion message."""
+        try:
+            res = await coro
+            print(f"  ✨ Completed: {name}", file=sys.stderr)
+            return res
+        except Exception as e:
+            print(f"  💥 Failed: {name} ({e})", file=sys.stderr)
+            return e
+
     async def run_audit(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Execute full security audit workflow"""
         print(f"\n🔍 Scanning Target: {self.base_url}", file=sys.stderr)
@@ -860,13 +870,13 @@ class OllamaSecurityAuditor:
         print("🧪 Running advanced probes...", file=sys.stderr)
         # Run independent advanced probes concurrently to drastically reduce scan latency
         results = await asyncio.gather(
-            self.check_model_weight_exfil(session),
-            self.check_streaming_dos(session),
-            self.check_modelfile_rce(session),
-            self.check_cloud_metadata_ssrf(session),
-            self.check_token_brute(session),
-            self.check_prompt_injection_leakage(session),
-            self.extract_model_configs(session),
+            self._run_probe_with_feedback(self.check_model_weight_exfil(session), "Model Weight Exfiltration"),
+            self._run_probe_with_feedback(self.check_streaming_dos(session), "Streaming DoS Risk"),
+            self._run_probe_with_feedback(self.check_modelfile_rce(session), "Modelfile RCE Probe"),
+            self._run_probe_with_feedback(self.check_cloud_metadata_ssrf(session), "Cloud Metadata SSRF"),
+            self._run_probe_with_feedback(self.check_token_brute(session), "Token/Key Brute-Force"),
+            self._run_probe_with_feedback(self.check_prompt_injection_leakage(session), "Prompt Injection Leakage"),
+            self._run_probe_with_feedback(self.extract_model_configs(session), "Model Config Extraction"),
             return_exceptions=True
         )
 
@@ -1037,12 +1047,24 @@ class OllamaRangeScanner:
         except:
             return False
 
-    async def scan_target(self, ip: str, port: int, output_base: str, session_semaphore: asyncio.Semaphore):
+    async def scan_target(self, ip: str, port: int, output_base: str, session_semaphore: asyncio.Semaphore, total_ips: int = 1):
         """Worker function for a single target."""
         is_open = await self._check_port(ip, port)
+        self.scanned_count += 1
+
+        pct = int(self.scanned_count / total_ips * 100)
+        bar_len = 20
+        filled_len = int(bar_len * self.scanned_count // total_ips)
+        bar = "█" * filled_len + "░" * (bar_len - filled_len)
+
+        # In-place terminal progress update
+        sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
+        sys.stderr.flush()
+
         if not is_open: return
 
-        print(f"\n🔓 Port {port} Open on {ip}. Starting Audit...", file=sys.stderr)
+        sys.stderr.write(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n")
+        sys.stderr.flush()
         
         target_url = f"http://{ip}:{port}"
         auditor = OllamaSecurityAuditor(
@@ -1057,9 +1079,14 @@ class OllamaRangeScanner:
                 if output_base:
                     output_file = os.path.join(output_base, f"audit_{ip}")
                     report_path = auditor.generate_report(findings, output_file, 'md')
-                    print(f"   📝 Report saved to: {report_path}", file=sys.stderr)
+                    sys.stderr.write(f"\r\033[K   📝 Report saved to: {report_path}\n")
+                    sys.stderr.flush()
         except Exception as e:
-            print(f"   ❌ Audit failed for {ip}: {e}", file=sys.stderr)
+            sys.stderr.write(f"\r\033[K   ❌ Audit failed for {ip}: {e}\n")
+            sys.stderr.flush()
+
+        sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
+        sys.stderr.flush()
 
     async def run(self, ip_range_str: str, port: int, output_base: str):
         """Main scanner entry point."""
@@ -1073,12 +1100,17 @@ class OllamaRangeScanner:
         print("-" * 50, file=sys.stderr)
         sem = asyncio.Semaphore(self.max_concurrent)
         
+        self.scanned_count = 0
+        total_ips = len(ips)
+
         tasks = []
         for ip in ips:
-            task = asyncio.create_task(self.scan_target(ip, port, output_base, sem))
+            task = asyncio.create_task(self.scan_target(ip, port, output_base, sem, total_ips))
             tasks.append(task)
             
         await asyncio.gather(*tasks)
+        sys.stderr.write("\n")
+        sys.stderr.flush()
         print(f"\n{'='*50}", file=sys.stderr)
         print("🏁 Range Scan Complete.", file=sys.stderr)
         print(f"{'='*50}", file=sys.stderr)
