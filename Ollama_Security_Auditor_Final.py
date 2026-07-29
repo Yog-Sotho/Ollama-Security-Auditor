@@ -360,34 +360,31 @@ class OllamaSecurityAuditor:
             remediation="Verify target URL and network routing."
         )
 
-    async def _fetch_dynamic_advisories(self, session: aiohttp.ClientSession):
-        """Fetch live advisories from multiple sources: GitHub, NVD, ExploitDB"""
-        logger.info("🌐 Fetching dynamic advisories from multiple sources...")
-        seen_ids = set()
-        
-        # 1. GitHub Security Advisories
+    async def _fetch_github_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
+        """Fetch live advisories from GitHub Security advisories API."""
+        results = []
         try:
             gh_url = "https://api.github.com/repos/ollama/ollama/security/advisories?state=open&per_page=10"
             headers = {"Accept": "application/vnd.github+json", "User-Agent": "OllamaAuditor/1.5"}
             async with session.get(gh_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # SYNTAX FIX: Explicit iterable 'data' added
                     for adv in data:
                         ghsa = adv.get("ghsa_id", "GHSA-UNKNOWN")
-                        if ghsa not in seen_ids:
-                            seen_ids.add(ghsa)
-                            self._dynamic_advisories_cache.append({
-                                "cve_id": ghsa, "title": adv.get("summary", "GitHub Advisory"),
-                                "severity": Severity.HIGH, "affected_range": ">=0.0.0",
-                                "check_type": "endpoint_version_match",
-                                "description": adv.get("description", "Dynamic advisory detected via GitHub."),
-                                "remediation": "Apply vendor patch immediately.",
-                                "indicator": "GitHub Advisory Match", "source": "GitHub"
-                            })
+                        results.append({
+                            "cve_id": ghsa, "title": adv.get("summary", "GitHub Advisory"),
+                            "severity": Severity.HIGH, "affected_range": ">=0.0.0",
+                            "check_type": "endpoint_version_match",
+                            "description": adv.get("description", "Dynamic advisory detected via GitHub."),
+                            "remediation": "Apply vendor patch immediately.",
+                            "indicator": "GitHub Advisory Match", "source": "GitHub"
+                        })
         except Exception as e: logger.debug(f"GitHub advisory fetch failed: {e}")
+        return results
 
-        # 2. NVD API (CVE Search)
+    async def _fetch_nvd_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
+        """Fetch live advisories from NVD CVE Search API."""
+        results = []
         try:
             nvd_url = "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=ollama&resultsPerPage=5"
             async with session.get(nvd_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
@@ -396,8 +393,7 @@ class OllamaSecurityAuditor:
                     for item in data.get("vulnerabilities", []):
                         cve_meta = item.get("cve", {})
                         cve_id = cve_meta.get("id")
-                        if cve_id and cve_id not in seen_ids:
-                            seen_ids.add(cve_id)
+                        if cve_id:
                             descs = cve_meta.get("descriptions", [{}])
                             desc = descs[0].get("value", "NVD Advisory")
                             metrics = cve_meta.get("metrics", {})
@@ -406,7 +402,7 @@ class OllamaSecurityAuditor:
                                 score = metrics["cvssMetricV31"][0].get("cvssData", {}).get("baseScore", 0)
                                 sev = Severity.CRITICAL if score >= 9.0 else Severity.HIGH if score >= 7.0 else Severity.MEDIUM
                             
-                            self._dynamic_advisories_cache.append({
+                            results.append({
                                 "cve_id": cve_id, "title": f"NVD: {cve_id}",
                                 "severity": sev, "affected_range": ">=0.0.0",
                                 "check_type": "endpoint_version_match",
@@ -414,8 +410,11 @@ class OllamaSecurityAuditor:
                                 "indicator": "NVD Match", "source": "NVD"
                             })
         except Exception as e: logger.debug(f"NVD advisory fetch failed: {e}")
+        return results
 
-        # 3. ExploitDB Search
+    async def _fetch_exploitdb_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
+        """Fetch live advisories from ExploitDB API."""
+        results = []
         try:
             edb_url = "https://www.exploit-db.com/api/v1/exploits?search=ollama&pageSize=5"
             headers = {"Accept": "application/json", "User-Agent": "OllamaAuditor/1.5"}
@@ -424,17 +423,38 @@ class OllamaSecurityAuditor:
                     data = await resp.json()
                     for exp in data.get("data", []):
                         edb_id = f"EDB-{exp.get('id', 'UNKNOWN')}"
-                        if edb_id not in seen_ids:
-                            seen_ids.add(edb_id)
-                            self._dynamic_advisories_cache.append({
-                                "cve_id": edb_id, "title": f"ExploitDB: {exp.get('title', 'Unknown Exploit')}",
-                                "severity": Severity.HIGH, "affected_range": ">=0.0.0",
-                                "check_type": "endpoint_version_match",
-                                "description": f"Public exploit available: {exp.get('description', 'N/A')}",
-                                "remediation": "Apply vendor patch immediately. Monitor exploit activity.",
-                                "indicator": "ExploitDB Match", "source": "ExploitDB"
-                            })
+                        results.append({
+                            "cve_id": edb_id, "title": f"ExploitDB: {exp.get('title', 'Unknown Exploit')}",
+                            "severity": Severity.HIGH, "affected_range": ">=0.0.0",
+                            "check_type": "endpoint_version_match",
+                            "description": f"Public exploit available: {exp.get('description', 'N/A')}",
+                            "remediation": "Apply vendor patch immediately. Monitor exploit activity.",
+                            "indicator": "ExploitDB Match", "source": "ExploitDB"
+                        })
         except Exception as e: logger.debug(f"ExploitDB advisory fetch failed: {e}")
+        return results
+
+    async def _fetch_dynamic_advisories(self, session: aiohttp.ClientSession):
+        """Fetch live advisories from multiple sources concurrently: GitHub, NVD, ExploitDB"""
+        logger.info("🌐 Fetching dynamic advisories from multiple sources concurrently...")
+        seen_ids = set()
+
+        # Execute independent external API requests concurrently to optimize network latency
+        results = await asyncio.gather(
+            self._fetch_github_advisories(session),
+            self._fetch_nvd_advisories(session),
+            self._fetch_exploitdb_advisories(session),
+            return_exceptions=True
+        )
+
+        for res_list in results:
+            if isinstance(res_list, list):
+                for advisory in res_list:
+                    cve_id = advisory["cve_id"]
+                    if cve_id not in seen_ids:
+                        seen_ids.add(cve_id)
+                        self._dynamic_advisories_cache.append(advisory)
+
         logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories.")
 
     async def discover_models(self, session: aiohttp.ClientSession):
@@ -1060,44 +1080,46 @@ class OllamaRangeScanner:
 
     async def scan_target(self, ip: str, port: int, output_base: str, session_semaphore: asyncio.Semaphore, total_ips: int = 1):
         """Worker function for a single target."""
-        is_open = await self._check_port(ip, port)
-        self.scanned_count += 1
+        # Enforce concurrency controls via the semaphore to avoid socket exhaustion and Too Many Open Files errors
+        async with session_semaphore:
+            is_open = await self._check_port(ip, port)
+            self.scanned_count += 1
 
-        pct = int(self.scanned_count / total_ips * 100)
-        bar_len = 20
-        filled_len = int(bar_len * self.scanned_count // total_ips)
-        bar = "█" * filled_len + "░" * (bar_len - filled_len)
+            pct = int(self.scanned_count / total_ips * 100)
+            bar_len = 20
+            filled_len = int(bar_len * self.scanned_count // total_ips)
+            bar = "█" * filled_len + "░" * (bar_len - filled_len)
 
-        # In-place terminal progress update
-        sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
-        sys.stderr.flush()
-
-        if not is_open: return
-
-        sys.stderr.write(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n")
-        sys.stderr.flush()
-        
-        target_url = f"http://{ip}:{port}"
-        auditor = OllamaSecurityAuditor(
-            target_url=target_url, timeout=self.timeout, max_concurrent=10,
-            deep_mode=self.deep_mode, request_delay=self.request_delay
-        )
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                findings = await auditor.run_audit(session)
-                
-                if output_base:
-                    output_file = os.path.join(output_base, f"audit_{ip}")
-                    report_path = auditor.generate_report(findings, output_file, 'md')
-                    sys.stderr.write(f"\r\033[K   📝 Report saved to: {report_path}\n")
-                    sys.stderr.flush()
-        except Exception as e:
-            sys.stderr.write(f"\r\033[K   ❌ Audit failed for {ip}: {e}\n")
+            # In-place terminal progress update
+            sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
             sys.stderr.flush()
 
-        sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
-        sys.stderr.flush()
+            if not is_open: return
+
+            sys.stderr.write(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n")
+            sys.stderr.flush()
+
+            target_url = f"http://{ip}:{port}"
+            auditor = OllamaSecurityAuditor(
+                target_url=target_url, timeout=self.timeout, max_concurrent=10,
+                deep_mode=self.deep_mode, request_delay=self.request_delay
+            )
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    findings = await auditor.run_audit(session)
+
+                    if output_base:
+                        output_file = os.path.join(output_base, f"audit_{ip}")
+                        report_path = auditor.generate_report(findings, output_file, 'md')
+                        sys.stderr.write(f"\r\033[K   📝 Report saved to: {report_path}\n")
+                        sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"\r\033[K   ❌ Audit failed for {ip}: {e}\n")
+                sys.stderr.flush()
+
+            sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
+            sys.stderr.flush()
 
     async def run(self, ip_range_str: str, port: int, output_base: str):
         """Main scanner entry point."""
