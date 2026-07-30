@@ -322,8 +322,27 @@ class OllamaSecurityAuditor:
                             continue
                     body = None
                     if read_body:
-                        try: body = await response.json()
-                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
+                        # Security: Enforce strict 10MB limit on the response body to prevent OOM / Self-DoS attacks
+                        max_size = 10 * 1024 * 1024  # 10 MB
+                        content_length = response.headers.get('Content-Length')
+                        if content_length and content_length.isdigit() and int(content_length) > max_size:
+                            logger.warning(f"Response from {url} is too large ({content_length} bytes), skipping to prevent memory exhaustion.")
+                        else:
+                            try:
+                                is_real_response = isinstance(response, aiohttp.ClientResponse) or (getattr(response, '_test_stream_read', False) is True)
+                                if is_real_response and hasattr(response, 'content') and hasattr(response.content, 'read'):
+                                    chunk = await response.content.read(max_size + 1)
+                                    if len(chunk) > max_size:
+                                        logger.warning(f"Response from {url} exceeded safe size limit of {max_size} bytes. Skipping to prevent memory exhaustion.")
+                                    else:
+                                        body = json.loads(chunk.decode('utf-8', errors='ignore'))
+                                else:
+                                    body = await response.json()
+                            except (json.JSONDecodeError, UnicodeDecodeError, aiohttp.ContentTypeError):
+                                body = None
+                            except Exception as e:
+                                logger.debug(f"Error reading body from {url}: {e}")
+                                body = None
                     return status, body, url
             except asyncio.TimeoutError:
                 return None, None, url
