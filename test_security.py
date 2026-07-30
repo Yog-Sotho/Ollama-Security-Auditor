@@ -176,5 +176,68 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             validate_ip_range_static("10.0.0.1-10.5.0.1")
         self.assertIn("IP range too large", str(ctx.exception))
 
+    async def test_safe_request_oom_prevention_via_content_length(self):
+        """Test that _safe_request skips reading the body if Content-Length exceeds 10MB."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        # 11MB Content-Length
+        mock_response.headers = {'Content-Length': str(11 * 1024 * 1024)}
+        mock_response.json = AsyncMock()
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        status, body, url = await self.auditor._safe_request(
+            mock_session, "GET", "/api/version", read_body=True
+        )
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(body)
+        mock_response.json.assert_not_called()
+
+    async def test_safe_request_oom_prevention_via_stream_read(self):
+        """Test that _safe_request skips parsing if the streamed content exceeds 10MB."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        # Set our flag to force stream reading
+        mock_response._test_stream_read = True
+
+        # Mock response.content.read to return more than 10MB
+        # Let's return 10MB + 1 bytes of dummy content
+        oversized_content = b"a" * (10 * 1024 * 1024 + 1)
+        mock_response.content = MagicMock()
+        mock_response.content.read = AsyncMock(return_value=oversized_content)
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        status, body, url = await self.auditor._safe_request(
+            mock_session, "GET", "/api/version", read_body=True
+        )
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(body)
+
+    async def test_safe_request_successful_stream_read(self):
+        """Test that _safe_request successfully reads and parses a safe stream response under 10MB."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response._test_stream_read = True
+
+        mock_response.content = MagicMock()
+        mock_response.content.read = AsyncMock(return_value=b'{"status": "ok"}')
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        status, body, url = await self.auditor._safe_request(
+            mock_session, "GET", "/api/version", read_body=True
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"status": "ok"})
+
 if __name__ == "__main__":
     unittest.main()
