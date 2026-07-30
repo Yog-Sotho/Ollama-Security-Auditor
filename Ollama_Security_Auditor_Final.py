@@ -1002,11 +1002,18 @@ class OllamaSecurityAuditor:
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
                 status_lbl = "VULNERABLE" if f.status == CheckStatus.VULNERABLE else "WARNING"
-                print(f"  {severity_colors[f.severity]} {f.check_name} ({status_lbl})", file=sys.stderr)
+                cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
+                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_lbl})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
                 print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
         else:
             print("✅ All checked items are SECURE! No actions required.", file=sys.stderr)
+
+        # Micro-UX: Inform user of the absolute path to extracted LLM configurations
+        prompts_dir = "extracted_prompts"
+        if os.path.isdir(prompts_dir) and any(fname.endswith('.md') for fname in os.listdir(prompts_dir)):
+            print(f"📂 LLM Prompts extracted to: {os.path.abspath(prompts_dir)}", file=sys.stderr)
+
         print("=" * 70 + "\n", file=sys.stderr)
 
         return self.findings
@@ -1034,7 +1041,7 @@ class OllamaSecurityAuditor:
                 ]
             }
             with open(report_path, 'w', encoding='utf-8') as file: json.dump(report_data, file, indent=2, cls=CustomEncoder)
-            return report_path
+            return os.path.abspath(report_path)
             
         elif format_type == 'md':
             report_path = f"{output_path}_audit_{timestamp}.md"
@@ -1091,7 +1098,7 @@ class OllamaSecurityAuditor:
                 lines.append("---"); lines.append("")
                 
             with open(report_path, 'w', encoding='utf-8') as file: file.write('\n'.join(lines))
-            return report_path
+            return os.path.abspath(report_path)
         else:
             raise ValueError(f"Unsupported format: {format_type}")
 

@@ -151,3 +151,15 @@ async def test_run_probe_with_feedback(capsys):
 
     captured = sys.stderr.getvalue() if hasattr(sys.stderr, "getvalue") else capsys.readouterr().err
     assert "✨ Completed: Test Probe" in captured
+
+
+def test_generate_report_returns_absolute_path(tmp_path):
+    auditor = OllamaSecurityAuditor(target_url="localhost")
+    auditor.detected_version = "0.1.48"
+    auditor.stats = {"total_checks": 0, "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+
+    output_base = os.path.join(tmp_path, "test_report")
+    report_path = auditor.generate_report([], output_base, "md")
+
+    assert os.path.isabs(report_path)
+    assert os.path.exists(report_path)
