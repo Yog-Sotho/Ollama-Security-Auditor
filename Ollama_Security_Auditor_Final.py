@@ -282,6 +282,7 @@ class OllamaSecurityAuditor:
         # v1.5 Features: Model Discovery Storage
         self.discovered_models: List[str] = []
         self.loaded_models: List[Dict] = []
+        self._request_cache: Dict[str, Any] = {}
 
     async def _safe_request(
         self,
@@ -294,6 +295,17 @@ class OllamaSecurityAuditor:
         read_body: bool = True
     ) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
         """Execute HTTP request with strict error handling, retry logic, and rate-limit awareness"""
+        # Bolt Optimization: Cache static metadata endpoints to eliminate redundant network roundtrips
+        cache_eligible = (
+            method.upper() == "GET" and
+            endpoint in ["/api/tags", "/api/version"] and
+            not json_payload and
+            not (headers and any(k.lower() == "authorization" for k in headers))
+        )
+        if cache_eligible and endpoint in self._request_cache:
+            logger.debug(f"Cache Hit for {endpoint}")
+            return self._request_cache[endpoint]
+
         url = f"{self.base_url}{endpoint}"
         ssl_ctx = None if self.disable_ssl_verify else True
         req_timeout = aiohttp.ClientTimeout(total=timeout_override or self.timeout)
@@ -321,10 +333,13 @@ class OllamaSecurityAuditor:
                             retry_count += 1
                             continue
                     body = None
-                    if read_body:
+                    if read_body or cache_eligible:
                         try: body = await response.json()
                         except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
-                    return status, body, url
+                    result = (status, body, url)
+                    if cache_eligible and status == 200:
+                        self._request_cache[endpoint] = result
+                    return result
             except asyncio.TimeoutError:
                 return None, None, url
             except Exception as e:

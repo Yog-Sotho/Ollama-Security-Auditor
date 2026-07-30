@@ -117,6 +117,42 @@ class TestOllamaSecurityAuditor(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(mock_fetch.called)
             self.assertTrue(mock_discover.called)
 
+    async def test_metadata_endpoint_caching(self):
+        # Create a mock response for session.request
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value={"version": "1.2.3"})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        # Configure the session mock's request method
+        session_mock = MagicMock()
+        session_mock.request = MagicMock(return_value=mock_response)
+
+        # Perform duplicate calls to /api/version
+        status1, body1, url1 = await self.auditor._safe_request(session_mock, "GET", "/api/version")
+        status2, body2, url2 = await self.auditor._safe_request(session_mock, "GET", "/api/version")
+
+        # Verify both returned the correct data
+        self.assertEqual(status1, 200)
+        self.assertEqual(body1, {"version": "1.2.3"})
+        self.assertEqual(status2, 200)
+        self.assertEqual(body2, {"version": "1.2.3"})
+
+        # Verify session.request was only called once due to caching
+        session_mock.request.assert_called_once()
+
+        # Verify that dynamic / unauthorized requests bypass cache
+        session_mock.request.reset_mock()
+
+        # Request with authorization header
+        status3, body3, url3 = await self.auditor._safe_request(
+            session_mock, "GET", "/api/version", headers={"Authorization": "Bearer token"}
+        )
+        self.assertEqual(status3, 200)
+        session_mock.request.assert_called_once()
+
     async def test_report_generation(self):
         # Setup sample findings
         findings = [
