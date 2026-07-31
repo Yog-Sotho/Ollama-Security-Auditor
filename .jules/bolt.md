@@ -9,3 +9,7 @@
 ## 2026-07-30 - [Ollama Metadata Caching Limitations]
 **Learning:** Caching `/api/ps` in Ollama introduces dynamic stale-state bugs because Ollama automatically loads and unloads models dynamically based on keep-alive parameters and query activity. In contrast, static metadata endpoints such as `/api/version` and `/api/tags` remain completely unchanged during an audit and can be safely cached to avoid duplicate network roundtrips.
 **Action:** Exclude active process tracking (`/api/ps`) from metadata cache eligibility; limit single-audit HTTP GET caching strictly to static and semi-static API resources (`/api/version`, `/api/tags`).
+
+## 2026-07-31 - [Ollama Metadata Caching Early Return Bug]
+**Learning:** In the metadata response caching implementation, an early return statement was returning before caching could take place. This caused the metadata cache to remain completely unpopulated, causing multiple redundant network calls for `/api/tags` and `/api/version`.
+**Action:** Remove the incorrect early return in `_safe_request` to ensure static metadata requests are correctly cached and reused, reducing network roundtrips.

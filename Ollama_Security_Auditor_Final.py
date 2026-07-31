@@ -355,12 +355,10 @@ class OllamaSecurityAuditor:
                             except Exception as e:
                                 logger.debug(f"Error reading body from {url}: {e}")
                                 body = None
-                    return status, body, url
-                    if read_body or cache_eligible:
-                        try: body = await response.json()
-                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
+
                     result = (status, body, url)
                     if cache_eligible and status == 200:
+                        # Cache static and semi-static metadata responses to eliminate redundant network requests
                         self._request_cache[endpoint] = result
                     return result
             except asyncio.TimeoutError:
