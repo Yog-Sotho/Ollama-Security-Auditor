@@ -306,7 +306,10 @@ class OllamaSecurityAuditor:
             logger.debug(f"Cache Hit for {endpoint}")
             return self._request_cache[endpoint]
 
-        url = f"{self.base_url}{endpoint}"
+        if endpoint.startswith(('http://', 'https://')):
+            url = endpoint
+        else:
+            url = f"{self.base_url}{endpoint}"
         ssl_ctx = None if self.disable_ssl_verify else True
         req_timeout = aiohttp.ClientTimeout(total=timeout_override or self.timeout)
         max_retries = 3
@@ -355,10 +358,6 @@ class OllamaSecurityAuditor:
                             except Exception as e:
                                 logger.debug(f"Error reading body from {url}: {e}")
                                 body = None
-                    return status, body, url
-                    if read_body or cache_eligible:
-                        try: body = await response.json()
-                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
                     result = (status, body, url)
                     if cache_eligible and status == 200:
                         self._request_cache[endpoint] = result
@@ -399,76 +398,73 @@ class OllamaSecurityAuditor:
         )
 
     async def _fetch_github_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
-        """Fetch live advisories from GitHub Security advisories API."""
+        """Fetch live advisories from GitHub Security advisories API securely via safe_request."""
         results = []
         try:
             gh_url = "https://api.github.com/repos/ollama/ollama/security/advisories?state=open&per_page=10"
             headers = {"Accept": "application/vnd.github+json", "User-Agent": "OllamaAuditor/1.5"}
-            async with session.get(gh_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for adv in data:
-                        ghsa = adv.get("ghsa_id", "GHSA-UNKNOWN")
-                        results.append({
-                            "cve_id": ghsa, "title": adv.get("summary", "GitHub Advisory"),
-                            "severity": Severity.HIGH, "affected_range": ">=0.0.0",
-                            "check_type": "endpoint_version_match",
-                            "description": adv.get("description", "Dynamic advisory detected via GitHub."),
-                            "remediation": "Apply vendor patch immediately.",
-                            "indicator": "GitHub Advisory Match", "source": "GitHub"
-                        })
+            status, data, _ = await self._safe_request(session, "GET", gh_url, headers=headers, timeout_override=5.0)
+            if status == 200 and isinstance(data, list):
+                for adv in data:
+                    ghsa = adv.get("ghsa_id", "GHSA-UNKNOWN")
+                    results.append({
+                        "cve_id": ghsa, "title": adv.get("summary", "GitHub Advisory"),
+                        "severity": Severity.HIGH, "affected_range": ">=0.0.0",
+                        "check_type": "endpoint_version_match",
+                        "description": adv.get("description", "Dynamic advisory detected via GitHub."),
+                        "remediation": "Apply vendor patch immediately.",
+                        "indicator": "GitHub Advisory Match", "source": "GitHub"
+                    })
         except Exception as e: logger.debug(f"GitHub advisory fetch failed: {e}")
         return results
 
     async def _fetch_nvd_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
-        """Fetch live advisories from NVD CVE Search API."""
+        """Fetch live advisories from NVD CVE Search API securely via safe_request."""
         results = []
         try:
             nvd_url = "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=ollama&resultsPerPage=5"
-            async with session.get(nvd_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for item in data.get("vulnerabilities", []):
-                        cve_meta = item.get("cve", {})
-                        cve_id = cve_meta.get("id")
-                        if cve_id:
-                            descs = cve_meta.get("descriptions", [{}])
-                            desc = descs[0].get("value", "NVD Advisory")
-                            metrics = cve_meta.get("metrics", {})
-                            sev = Severity.MEDIUM
-                            if metrics.get("cvssMetricV31"):
-                                score = metrics["cvssMetricV31"][0].get("cvssData", {}).get("baseScore", 0)
-                                sev = Severity.CRITICAL if score >= 9.0 else Severity.HIGH if score >= 7.0 else Severity.MEDIUM
-                            
-                            results.append({
-                                "cve_id": cve_id, "title": f"NVD: {cve_id}",
-                                "severity": sev, "affected_range": ">=0.0.0",
-                                "check_type": "endpoint_version_match",
-                                "description": desc, "remediation": "Consult NVD for patch details.",
-                                "indicator": "NVD Match", "source": "NVD"
-                            })
+            status, data, _ = await self._safe_request(session, "GET", nvd_url, timeout_override=5.0)
+            if status == 200 and isinstance(data, dict):
+                for item in data.get("vulnerabilities", []):
+                    cve_meta = item.get("cve", {})
+                    cve_id = cve_meta.get("id")
+                    if cve_id:
+                        descs = cve_meta.get("descriptions", [{}])
+                        desc = descs[0].get("value", "NVD Advisory")
+                        metrics = cve_meta.get("metrics", {})
+                        sev = Severity.MEDIUM
+                        if metrics.get("cvssMetricV31"):
+                            score = metrics["cvssMetricV31"][0].get("cvssData", {}).get("baseScore", 0)
+                            sev = Severity.CRITICAL if score >= 9.0 else Severity.HIGH if score >= 7.0 else Severity.MEDIUM
+
+                        results.append({
+                            "cve_id": cve_id, "title": f"NVD: {cve_id}",
+                            "severity": sev, "affected_range": ">=0.0.0",
+                            "check_type": "endpoint_version_match",
+                            "description": desc, "remediation": "Consult NVD for patch details.",
+                            "indicator": "NVD Match", "source": "NVD"
+                        })
         except Exception as e: logger.debug(f"NVD advisory fetch failed: {e}")
         return results
 
     async def _fetch_exploitdb_advisories(self, session: aiohttp.ClientSession) -> List[Dict[str, Any]]:
-        """Fetch live advisories from ExploitDB API."""
+        """Fetch live advisories from ExploitDB API securely via safe_request."""
         results = []
         try:
             edb_url = "https://www.exploit-db.com/api/v1/exploits?search=ollama&pageSize=5"
             headers = {"Accept": "application/json", "User-Agent": "OllamaAuditor/1.5"}
-            async with session.get(edb_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for exp in data.get("data", []):
-                        edb_id = f"EDB-{exp.get('id', 'UNKNOWN')}"
-                        results.append({
-                            "cve_id": edb_id, "title": f"ExploitDB: {exp.get('title', 'Unknown Exploit')}",
-                            "severity": Severity.HIGH, "affected_range": ">=0.0.0",
-                            "check_type": "endpoint_version_match",
-                            "description": f"Public exploit available: {exp.get('description', 'N/A')}",
-                            "remediation": "Apply vendor patch immediately. Monitor exploit activity.",
-                            "indicator": "ExploitDB Match", "source": "ExploitDB"
-                        })
+            status, data, _ = await self._safe_request(session, "GET", edb_url, headers=headers, timeout_override=5.0)
+            if status == 200 and isinstance(data, dict):
+                for exp in data.get("data", []):
+                    edb_id = f"EDB-{exp.get('id', 'UNKNOWN')}"
+                    results.append({
+                        "cve_id": edb_id, "title": f"ExploitDB: {exp.get('title', 'Unknown Exploit')}",
+                        "severity": Severity.HIGH, "affected_range": ">=0.0.0",
+                        "check_type": "endpoint_version_match",
+                        "description": f"Public exploit available: {exp.get('description', 'N/A')}",
+                        "remediation": "Apply vendor patch immediately. Monitor exploit activity.",
+                        "indicator": "ExploitDB Match", "source": "ExploitDB"
+                    })
         except Exception as e: logger.debug(f"ExploitDB advisory fetch failed: {e}")
         return results
 

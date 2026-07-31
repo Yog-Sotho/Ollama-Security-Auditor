@@ -239,5 +239,45 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, {"status": "ok"})
 
+    async def test_external_advisories_use_safe_request(self):
+        """Test that _fetch_github_advisories, _fetch_nvd_advisories, and _fetch_exploitdb_advisories leverage _safe_request."""
+        with patch.object(self.auditor, "_safe_request", AsyncMock()) as mock_safe_request:
+            # 1. GH Advisories
+            mock_safe_request.return_value = (200, [{"ghsa_id": "GHSA-123", "summary": "test advis", "description": "desc"}], "")
+            mock_session = MagicMock()
+            findings_gh = await self.auditor._fetch_github_advisories(mock_session)
+            mock_safe_request.assert_called_with(
+                mock_session, "GET", "https://api.github.com/repos/ollama/ollama/security/advisories?state=open&per_page=10",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "OllamaAuditor/1.5"}, timeout_override=5.0
+            )
+            self.assertEqual(len(findings_gh), 1)
+            self.assertEqual(findings_gh[0]["cve_id"], "GHSA-123")
+
+            # 2. NVD Advisories
+            mock_safe_request.reset_mock()
+            mock_safe_request.return_value = (200, {
+                "vulnerabilities": [{"cve": {"id": "CVE-2024-9999", "descriptions": [{"value": "test desc"}]}}]
+            }, "")
+            findings_nvd = await self.auditor._fetch_nvd_advisories(mock_session)
+            mock_safe_request.assert_called_with(
+                mock_session, "GET", "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=ollama&resultsPerPage=5",
+                timeout_override=5.0
+            )
+            self.assertEqual(len(findings_nvd), 1)
+            self.assertEqual(findings_nvd[0]["cve_id"], "CVE-2024-9999")
+
+            # 3. ExploitDB Advisories
+            mock_safe_request.reset_mock()
+            mock_safe_request.return_value = (200, {
+                "data": [{"id": "12345", "title": "RCE exploit", "description": "vuln details"}]
+            }, "")
+            findings_edb = await self.auditor._fetch_exploitdb_advisories(mock_session)
+            mock_safe_request.assert_called_with(
+                mock_session, "GET", "https://www.exploit-db.com/api/v1/exploits?search=ollama&pageSize=5",
+                headers={"Accept": "application/json", "User-Agent": "OllamaAuditor/1.5"}, timeout_override=5.0
+            )
+            self.assertEqual(len(findings_edb), 1)
+            self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
+
 if __name__ == "__main__":
     unittest.main()
