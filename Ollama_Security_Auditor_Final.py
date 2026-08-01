@@ -360,8 +360,8 @@ class OllamaSecurityAuditor:
                                 body = None
                     result = (status, body, url)
                     if cache_eligible and status == 200:
-                        self._request_cache[endpoint] = result
-                    return result
+                        self._request_cache[endpoint] = (status, body, url)
+                    return status, body, url
             except asyncio.TimeoutError:
                 return None, None, url
             except Exception as e:
@@ -703,7 +703,7 @@ class OllamaSecurityAuditor:
                         else:
                             f.write("> *Modelfile not available.*\n\n")
 
-                    logger.info(f"💾 Extracted & Saved full config: {prompt_path}")
+                    logger.info(f"💾 Extracted & Saved full config: {os.path.abspath(prompt_path)}")
 
                     # Scan all extracted content for sensitive patterns
                     full_context = f"{system_prompt} {template} {parameters} {modelfile_clean}"
@@ -720,7 +720,7 @@ class OllamaSecurityAuditor:
                         status=CheckStatus.WARNING if not matches else CheckStatus.VULNERABLE,
                         details=details,
                         remediation="Review extracted prompts for secrets.",
-                        evidence={"model": model_name, "file": prompt_path}
+                        evidence={"model": model_name, "file": os.path.abspath(prompt_path)}
                     ))
                 except Exception as e:
                     logger.error(f"Failed to write config for {model_name}: {e}")
@@ -991,15 +991,23 @@ class OllamaSecurityAuditor:
         print(f"Summary: {stats_line}", file=sys.stderr)
         print("-" * 70, file=sys.stderr)
 
-        actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING)]
+        actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING, CheckStatus.ERROR)]
         if actionable_findings:
-            print("⚠️  Action Required - Vulnerable/Warning Findings:", file=sys.stderr)
+            print("⚠️  Action Required - Vulnerable/Warning/Error Findings:", file=sys.stderr)
             severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
-                status_lbl = "VULNERABLE" if f.status == CheckStatus.VULNERABLE else "WARNING"
+                if f.status == CheckStatus.VULNERABLE:
+                    status_lbl = "VULNERABLE"
+                    status_indicator = "❌ VULNERABLE"
+                elif f.status == CheckStatus.ERROR:
+                    status_lbl = "ERROR"
+                    status_indicator = "💥 ERROR"
+                else:
+                    status_lbl = "WARNING"
+                    status_indicator = "⚠️ WARNING"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
-                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_lbl})", file=sys.stderr)
+                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
                 print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
         else:
