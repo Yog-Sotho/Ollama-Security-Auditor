@@ -239,5 +239,32 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, {"status": "ok"})
 
+    async def test_safe_request_absolute_url_handling(self):
+        """Test that _safe_request supports and executes requests on absolute URLs."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value={"advisories": []})
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        absolute_url = "https://api.github.com/repos/ollama/ollama/security/advisories"
+        status, body, url = await self.auditor._safe_request(
+            mock_session, "GET", absolute_url, read_body=True
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"advisories": []})
+        self.assertEqual(url, absolute_url)
+        # Verify request was called with the absolute URL directly, not prepended with base_url
+        mock_session.request.assert_called_once()
+        called_kwargs = mock_session.request.call_args[1]
+        self.assertEqual(called_kwargs["method"], "GET")
+        self.assertEqual(called_kwargs["url"], absolute_url)
+        self.assertEqual(called_kwargs["headers"], {})
+        self.assertEqual(called_kwargs["json"], None)
+        self.assertEqual(called_kwargs["ssl"], True)
+
 if __name__ == "__main__":
     unittest.main()
