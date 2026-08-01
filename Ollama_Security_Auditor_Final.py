@@ -84,6 +84,22 @@ class CustomEncoder(json.JSONEncoder):
         return super().default(obj)
 
 # ==============================================================================
+# TERMINAL COLOR UTILITIES
+# ==============================================================================
+def should_use_color() -> bool:
+    if "NO_COLOR" in os.environ or "PYTEST_CURRENT_TEST" in os.environ:
+        return False
+    return sys.stderr.isatty()
+
+CLR_CYAN = "\033[1;36m" if should_use_color() else ""
+CLR_GREEN = "\033[1;32m" if should_use_color() else ""
+CLR_RED = "\033[1;31m" if should_use_color() else ""
+CLR_YELLOW = "\033[1;33m" if should_use_color() else ""
+CLR_BLUE = "\033[1;34m" if should_use_color() else ""
+CLR_WHITE = "\033[1;37m" if should_use_color() else ""
+CLR_RESET = "\033[0m" if should_use_color() else ""
+
+# ==============================================================================
 # URL & IP UTILITIES
 # ==============================================================================
 def resolve_target_url(target: str) -> str:
@@ -333,12 +349,14 @@ class OllamaSecurityAuditor:
                             retry_count += 1
                             continue
                     body = None
+                    body_skipped = False
                     if read_body:
                         # Security: Enforce strict 10MB limit on the response body to prevent OOM / Self-DoS attacks
                         max_size = 10 * 1024 * 1024  # 10 MB
                         content_length = response.headers.get('Content-Length')
                         if content_length and content_length.isdigit() and int(content_length) > max_size:
                             logger.warning(f"Response from {url} is too large ({content_length} bytes), skipping to prevent memory exhaustion.")
+                            body_skipped = True
                         else:
                             try:
                                 is_real_response = isinstance(response, aiohttp.ClientResponse) or (getattr(response, '_test_stream_read', False) is True)
@@ -346,6 +364,7 @@ class OllamaSecurityAuditor:
                                     chunk = await response.content.read(max_size + 1)
                                     if len(chunk) > max_size:
                                         logger.warning(f"Response from {url} exceeded safe size limit of {max_size} bytes. Skipping to prevent memory exhaustion.")
+                                        body_skipped = True
                                     else:
                                         body = json.loads(chunk.decode('utf-8', errors='ignore'))
                                 else:
@@ -355,14 +374,13 @@ class OllamaSecurityAuditor:
                             except Exception as e:
                                 logger.debug(f"Error reading body from {url}: {e}")
                                 body = None
-                    return status, body, url
-                    if read_body or cache_eligible:
-                        try: body = await response.json()
-                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
-                    result = (status, body, url)
+                    if (read_body or cache_eligible) and not body_skipped:
+                        if body is None:
+                            try: body = await response.json()
+                            except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
                     if cache_eligible and status == 200:
-                        self._request_cache[endpoint] = result
-                    return result
+                        self._request_cache[endpoint] = (status, body, url)
+                    return status, body, url
             except asyncio.TimeoutError:
                 return None, None, url
             except Exception as e:
@@ -900,10 +918,10 @@ class OllamaSecurityAuditor:
         """Helper to run a probe concurrently and print a clean CLI completion message."""
         try:
             res = await coro
-            print(f"  ✨ Completed: {name}", file=sys.stderr)
+            print(f"  ✨ {CLR_GREEN}Completed:{CLR_RESET} {name}", file=sys.stderr)
             return res
         except Exception as e:
-            print(f"  💥 Failed: {name} ({e})", file=sys.stderr)
+            print(f"  💥 {CLR_RED}Failed:{CLR_RESET} {name} ({e})", file=sys.stderr)
             return e
 
     async def run_audit(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
@@ -980,34 +998,35 @@ class OllamaSecurityAuditor:
 
         # Micro-UX: Console-friendly results summary
         print("\n" + "=" * 70, file=sys.stderr)
-        print("📊 AUDIT FINDINGS SUMMARY", file=sys.stderr)
+        print(f"{CLR_CYAN}📊 AUDIT FINDINGS SUMMARY{CLR_RESET}", file=sys.stderr)
         print("=" * 70, file=sys.stderr)
 
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {CLR_RED}[CRITICAL]{CLR_RESET}",
+            Severity.HIGH: f"🟠 {CLR_YELLOW}[HIGH]{CLR_RESET}    ",
+            Severity.MEDIUM: f"🟡 {CLR_YELLOW}[MEDIUM]{CLR_RESET}  ",
+            Severity.LOW: f"🔵 {CLR_BLUE}[LOW]{CLR_RESET}     ",
+            Severity.INFO: f"⚪ {CLR_WHITE}[INFO]{CLR_RESET}     "
         }
 
-        stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
+        stats_line = " | ".join(f"{severity_colors[s].split()[0]} {CLR_RED if s == Severity.CRITICAL else CLR_YELLOW if s in (Severity.HIGH, Severity.MEDIUM) else CLR_BLUE if s == Severity.LOW else CLR_WHITE}{s.value}{CLR_RESET}: {self.stats[s.value]}" for s in Severity)
         print(f"Summary: {stats_line}", file=sys.stderr)
         print("-" * 70, file=sys.stderr)
 
         actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING)]
         if actionable_findings:
-            print("⚠️  Action Required - Vulnerable/Warning Findings:", file=sys.stderr)
+            print(f"{CLR_YELLOW}⚠️  Action Required - Vulnerable/Warning Findings:{CLR_RESET}", file=sys.stderr)
             severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
                 status_lbl = "VULNERABLE" if f.status == CheckStatus.VULNERABLE else "WARNING"
+                status_lbl_colored = f"{CLR_RED if f.status == CheckStatus.VULNERABLE else CLR_YELLOW}{status_lbl}{CLR_RESET}"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
-                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_lbl})", file=sys.stderr)
+                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_lbl_colored})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
                 print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
         else:
-            print("✅ All checked items are SECURE! No actions required.", file=sys.stderr)
+            print(f"{CLR_GREEN}✅ All checked items are SECURE! No actions required.{CLR_RESET}", file=sys.stderr)
 
         # Micro-UX: Inform user of the absolute path to extracted LLM configurations
         prompts_dir = "extracted_prompts"
@@ -1213,9 +1232,9 @@ def main():
     args = parser.parse_args()
     if args.verbose: logger.setLevel(logging.DEBUG)
 
-    print("=" * 70, file=sys.stderr)
-    print("🛡️  OLLAMA SECURITY AUDITOR FINAL EDITION", file=sys.stderr)
-    print("=" * 70, file=sys.stderr)
+    print(f"{CLR_CYAN}{'=' * 70}{CLR_RESET}", file=sys.stderr)
+    print(f"{CLR_CYAN}🛡️  OLLAMA SECURITY AUDITOR FINAL EDITION{CLR_RESET}", file=sys.stderr)
+    print(f"{CLR_CYAN}{'=' * 70}{CLR_RESET}", file=sys.stderr)
     
     try:
         is_range = False
