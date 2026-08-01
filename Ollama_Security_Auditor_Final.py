@@ -355,10 +355,7 @@ class OllamaSecurityAuditor:
                             except Exception as e:
                                 logger.debug(f"Error reading body from {url}: {e}")
                                 body = None
-                    return status, body, url
-                    if read_body or cache_eligible:
-                        try: body = await response.json()
-                        except (aiohttp.ContentTypeError, json.JSONDecodeError): body = None
+                    # Cache the result if eligible and the response status was successful (200 OK)
                     result = (status, body, url)
                     if cache_eligible and status == 200:
                         self._request_cache[endpoint] = result
