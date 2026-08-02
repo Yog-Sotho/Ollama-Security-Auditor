@@ -279,5 +279,44 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
 
+    async def test_input_sanitization_version_and_models(self):
+        """Test that untrusted target responses containing malicious/breakout characters are sanitized."""
+        # 1. Test version string sanitization in check_connectivity
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        # Malicious version payload with CRLF, HTML/Markdown tags and backticks
+        mock_response.json = AsyncMock(return_value={"version": "0.1.48\r\n<script>alert(1)</script>`RCE`"})
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        finding = await self.auditor.check_connectivity(mock_session)
+        self.assertEqual(self.auditor.detected_version, "0.1.48scriptalert1scriptRCE")
+
+        # 2. Test model names sanitization in discover_models
+        mock_tags_response = MagicMock()
+        mock_tags_response.status = 200
+        mock_tags_response.headers = {}
+        # Malicious model name
+        mock_tags_response.json = AsyncMock(return_value={
+            "models": [{"name": "llama3:latest\r\n[breakout](http://evil.com)`"}]
+        })
+
+        mock_ps_response = MagicMock()
+        mock_ps_response.status = 200
+        mock_ps_response.headers = {}
+        mock_ps_response.json = AsyncMock(return_value={
+            "models": [{"name": "loaded_model_inject<script>"}]
+        })
+
+        mock_session_models = MagicMock()
+        mock_session_models.request = MagicMock(side_effect=lambda method, url, **kwargs: MockRequestCtx(
+            mock_tags_response if "/api/tags" in url else mock_ps_response
+        ))
+
+        await self.auditor.discover_models(mock_session_models)
+        self.assertEqual(self.auditor.discovered_models, ["llama3:latestbreakouthttp://evil.com"])
+        self.assertEqual(self.auditor.loaded_models, [{"name": "loaded_model_injectscript"}])
+
 if __name__ == "__main__":
     unittest.main()

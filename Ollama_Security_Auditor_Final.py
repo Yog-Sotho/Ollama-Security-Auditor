@@ -385,7 +385,9 @@ class OllamaSecurityAuditor:
         status, body, full_url = await self._safe_request(session, "GET", version_endpoint)
         
         if status == 200 and body and "version" in body:
-            self.detected_version = body.get("version", "unknown")
+            raw_version = str(body.get("version", "unknown"))
+            # Keep only alphanumeric, dots, hyphens, plus signs, underscores to sanitize input
+            self.detected_version = re.sub(r'[^a-zA-Z0-9\.\-\+\_]', '', raw_version) or "unknown"
             return AuditFinding(
                 check_name="API Connectivity & Version Detection", severity=Severity.INFO, status=CheckStatus.SECURE,
                 details=f"Ollama API reachable. Detected Version: {self.detected_version}",
@@ -496,12 +498,20 @@ class OllamaSecurityAuditor:
         # 1. Installed Models (/api/tags)
         s, b, _ = await self._safe_request(session, "GET", "/api/tags")
         if s == 200 and b and "models" in b:
-            self.discovered_models = [m.get("name", "unknown") for m in b["models"]]
+            raw_models = [str(m.get("name", "unknown")) for m in b["models"]]
+            # Sanitize model names to prevent injection/breakout issues without using re.sub to avoid interfering with tests mocking re.sub
+            self.discovered_models = ["".join(c for c in name if c.isalnum() or c in ".-_:/") or "unknown" for name in raw_models]
         
         # 2. Loaded Models (/api/ps)
         s, b, _ = await self._safe_request(session, "GET", "/api/ps")
         if s == 200 and b and "models" in b:
-            self.loaded_models = b["models"]
+            sanitized_loaded = []
+            for m in b["models"]:
+                if isinstance(m, dict):
+                    name = str(m.get("name", "unknown"))
+                    m["name"] = "".join(c for c in name if c.isalnum() or c in ".-_:/") or "unknown"
+                    sanitized_loaded.append(m)
+            self.loaded_models = sanitized_loaded
 
     async def check_known_cves(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Check for known CVE vulnerabilities using version matching."""
@@ -649,7 +659,9 @@ class OllamaSecurityAuditor:
         os.makedirs(prompts_dir, exist_ok=True)
 
         for model in models:
-            model_name = model.get("name", "unknown")
+            model_name = str(model.get("name", "unknown"))
+            # Sanitize model names to prevent path/command/Markdown injections without using re.sub to avoid interfering with tests mocking re.sub
+            model_name = "".join(c for c in model_name if c.isalnum() or c in ".-_:/") or "unknown"
             status, config_body, _ = await self._safe_request(
                 session, "POST", "/api/show", json_payload={"name": model_name}, timeout_override=30.0
             )
@@ -758,7 +770,9 @@ class OllamaSecurityAuditor:
             return AuditFinding(check_name="Model Weight Exfiltration", severity=Severity.INFO, status=CheckStatus.SKIPPED, details="No models found to probe.", remediation="N/A")
             
         test_model = body["models"][0]
-        digest = test_model.get("digest", "")
+        digest = str(test_model.get("digest", ""))
+        # Sanitize digest to prevent directory traversal / parameter manipulation
+        digest = re.sub(r'[^a-zA-Z0-9\:]', '', digest)
         if not digest.startswith("sha256:"): digest = f"sha256:{digest}"
             
         blob_url = f"/api/blobs/{digest}"
@@ -834,7 +848,9 @@ class OllamaSecurityAuditor:
         ]
         
         for model in body.get("models", [])[:3]:
-            m_name = model.get("name")
+            m_name = str(model.get("name", "unknown"))
+            # Sanitize model name to prevent command / request injection without using re.sub to avoid interfering with tests mocking re.sub
+            m_name = "".join(c for c in m_name if c.isalnum() or c in ".-_:/") or "unknown"
             _, cfg, _ = await self._safe_request(session, "POST", "/api/show", json_payload={"name": m_name})
             if cfg and "system" in cfg:
                 prompt = cfg["system"]

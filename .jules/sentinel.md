@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-02 - Injection and Breakout Prevention via Untrusted Target Metadata Sanitization
+**Vulnerability:** The security auditor retrieved and trusted metadata (such as version strings, model names, and model digests) returned from remote, potentially malicious target hosts. This data was then output directly into logs, terminal prints, and Markdown or JSON audit reports without sanitization, posing risks of CRLF injection, control character injection, and HTML/Markdown breakout/rendering injection.
+**Learning:** This existed because of a lack of input validation and sanitization on remote network responses. It is a common misconception that a security tool only needs to sanitize its own command-line inputs; target-returned strings are also untrusted inputs when formatted into reports or console logs.
+**Prevention:** Always sanitize remote API metadata with strict whitelist-based character filters before storing, printing, logging, or writing them to structured reports.
