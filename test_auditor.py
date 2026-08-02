@@ -163,3 +163,28 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+def test_ansi_color_graceful_degradation(monkeypatch):
+    from Ollama_Security_Auditor_Final import _ansi_color
+    import sys
+    import os
+
+    # 1. Test when PYTEST_CURRENT_TEST is present (it is by default in pytest)
+    assert "PYTEST_CURRENT_TEST" in os.environ
+    assert _ansi_color("hello", "1;31") == "hello"
+
+    # 2. Test when sys.stderr.isatty() is False, even if env is clean
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    assert _ansi_color("hello", "1;31") == "hello"
+
+    # 3. Test when NO_COLOR is set to some value
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert _ansi_color("hello", "1;31") == "hello"
+
+    # 4. Test when all conditions for colors are satisfied
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    # isatty is mocked to return True, and PYTEST_CURRENT_TEST / NO_COLOR are not set.
+    assert _ansi_color("hello", "1;31") == "\033[1;31mhello\033[0m"
