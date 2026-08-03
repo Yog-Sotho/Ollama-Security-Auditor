@@ -9,3 +9,7 @@
 ## 2026-07-30 - [Ollama Metadata Caching Limitations]
 **Learning:** Caching `/api/ps` in Ollama introduces dynamic stale-state bugs because Ollama automatically loads and unloads models dynamically based on keep-alive parameters and query activity. In contrast, static metadata endpoints such as `/api/version` and `/api/tags` remain completely unchanged during an audit and can be safely cached to avoid duplicate network roundtrips.
 **Action:** Exclude active process tracking (`/api/ps`) from metadata cache eligibility; limit single-audit HTTP GET caching strictly to static and semi-static API resources (`/api/version`, `/api/tags`).
+
+## 2026-08-03 - [External Threat Intelligence Global Caching]
+**Learning:** Redundantly querying third-party threat intelligence APIs (GitHub, NVD, ExploitDB) across multiple auditor instances or scans creates unnecessary network overhead, increases overall audit duration, and risks rate limits. Implementing a lazy-initialized thread/coroutine-safe lock-controlled class-level global cache eliminates redundant network roundtrips completely.
+**Action:** Use class-level attributes coordinated with a lazy-initialized `asyncio.Lock` to cache external metadata safely across multiple auditor target instances.

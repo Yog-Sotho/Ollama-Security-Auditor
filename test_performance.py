@@ -185,6 +185,45 @@ class TestOllamaSecurityAuditor(unittest.IsolatedAsyncioTestCase):
         finally:
             shutil.rmtree(temp_dir)
 
+class TestOllamaSecurityAuditorGlobalCaching(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # Reset the global caches on the class before each test
+        OllamaSecurityAuditor._global_advisories_cache = []
+        OllamaSecurityAuditor._advisories_lock = None
+
+    async def asyncTearDown(self):
+        # Reset the global caches on the class after each test
+        OllamaSecurityAuditor._global_advisories_cache = []
+        OllamaSecurityAuditor._advisories_lock = None
+
+    @patch("Ollama_Security_Auditor_Final.OllamaSecurityAuditor._safe_request")
+    async def test_dynamic_advisories_global_caching(self, mock_safe_request):
+        """Test that sequential or concurrent auditor instances share the cached dynamic advisories and only make one set of HTTP requests."""
+        # Setup mock_safe_request to return successful mock responses for external APIs
+        mock_safe_request.side_effect = [
+            (200, [{"ghsa_id": "GHSA-123", "summary": "GHSA Summary", "description": "GHSA Desc"}], ""), # GH
+            (200, {"vulnerabilities": [{"cve": {"id": "CVE-2024-9999", "descriptions": [{"value": "CVE Desc"}]}}]}, ""), # NVD
+            (200, {"data": [{"id": "12345", "title": "EDB Title", "description": "EDB Desc"}]}, ""), # EDB
+        ]
+
+        auditor1 = OllamaSecurityAuditor("http://localhost:11434")
+        auditor2 = OllamaSecurityAuditor("http://localhost:11434")
+        session_mock = MagicMock()
+
+        # Execute first auditor instance's advisory fetch
+        await auditor1._fetch_dynamic_advisories(session_mock)
+        self.assertEqual(len(auditor1._dynamic_advisories_cache), 3)
+        self.assertEqual(mock_safe_request.call_count, 3)
+
+        # Reset call count of mock_safe_request to verify it is not called again
+        mock_safe_request.reset_mock()
+
+        # Execute second auditor instance's advisory fetch
+        await auditor2._fetch_dynamic_advisories(session_mock)
+        self.assertEqual(len(auditor2._dynamic_advisories_cache), 3)
+        mock_safe_request.assert_not_called()
+
+
 class TestOllamaRangeScanner(unittest.IsolatedAsyncioTestCase):
     @patch("Ollama_Security_Auditor_Final.OllamaRangeScanner._check_port")
     async def test_range_scanner_concurrency_control(self, mock_check_port):
