@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-03 - Remote Untrusted Response Sanitization & Directory Traversal Prevention
+**Vulnerability:** The security auditor processes remote API response payloads (such as version strings, model names, and digest blobs) returned from target Ollama endpoints. If a target is a compromised instance or malicious honeypot, it could return payloads with directory traversal sequences (`..`), CRLF injection characters, or Markdown breakout symbols to corrupt report generation, logs, or local directories.
+**Learning:** This existed because while standard audit checks implemented downstream path validation during file write, the codebase lacked proactive, central sanitization of untrusted target metadata at the retrieval layer.
+**Prevention:** Strictly sanitize all remote target inputs (model names, version strings, and digests) using character whitelist comprehensions and explicitly replace double-dot sequence patterns (`..`) at the sanitization layer before using them.

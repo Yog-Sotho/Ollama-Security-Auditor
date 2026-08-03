@@ -117,6 +117,29 @@ def resolve_target_url(target: str) -> str:
         rest = f"{host_part}:11434{path_part}"
     return f"{prefix}{rest}"
 
+def sanitize_version(version_str: str) -> str:
+    """Sanitize version string using a safe character whitelist to prevent CRLF & breakout."""
+    if not isinstance(version_str, str):
+        return "unknown"
+    return "".join(c for c in version_str if c.isalnum() or c in ".-_")
+
+def sanitize_model_name(name_str: str) -> str:
+    """Sanitize model name using a safe character whitelist to prevent directory traversal & breakout."""
+    if not isinstance(name_str, str):
+        return "unknown"
+    # Keep only alphanumeric, dot, hyphen, underscore, colon, forward-slash
+    cleaned = "".join(c for c in name_str if c.isalnum() or c in ".-_:/")
+    # Defensively replace double dots to prevent path traversal at the sanitization layer
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", "_")
+    return cleaned
+
+def sanitize_digest(digest_str: str) -> str:
+    """Sanitize digest blob using a safe character whitelist to prevent injection."""
+    if not isinstance(digest_str, str):
+        return ""
+    return "".join(c for c in digest_str if c.isalnum() or c in ":-_")
+
 def validate_ip_range_static(ip_range: str) -> List[str]:
     """Validates and expands a single IP range into individual IPs (IPv4 Only)."""
     ips = []
@@ -385,7 +408,7 @@ class OllamaSecurityAuditor:
         status, body, full_url = await self._safe_request(session, "GET", version_endpoint)
         
         if status == 200 and body and "version" in body:
-            self.detected_version = body.get("version", "unknown")
+            self.detected_version = sanitize_version(body.get("version", "unknown"))
             return AuditFinding(
                 check_name="API Connectivity & Version Detection", severity=Severity.INFO, status=CheckStatus.SECURE,
                 details=f"Ollama API reachable. Detected Version: {self.detected_version}",
@@ -496,12 +519,17 @@ class OllamaSecurityAuditor:
         # 1. Installed Models (/api/tags)
         s, b, _ = await self._safe_request(session, "GET", "/api/tags")
         if s == 200 and b and "models" in b:
-            self.discovered_models = [m.get("name", "unknown") for m in b["models"]]
+            self.discovered_models = [sanitize_model_name(m.get("name", "unknown")) for m in b["models"]]
         
         # 2. Loaded Models (/api/ps)
         s, b, _ = await self._safe_request(session, "GET", "/api/ps")
         if s == 200 and b and "models" in b:
-            self.loaded_models = b["models"]
+            self.loaded_models = []
+            for m in b["models"]:
+                if isinstance(m, dict):
+                    san_m = m.copy()
+                    san_m["name"] = sanitize_model_name(m.get("name", "unknown"))
+                    self.loaded_models.append(san_m)
 
     async def check_known_cves(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Check for known CVE vulnerabilities using version matching."""
@@ -649,7 +677,7 @@ class OllamaSecurityAuditor:
         os.makedirs(prompts_dir, exist_ok=True)
 
         for model in models:
-            model_name = model.get("name", "unknown")
+            model_name = sanitize_model_name(model.get("name", "unknown"))
             status, config_body, _ = await self._safe_request(
                 session, "POST", "/api/show", json_payload={"name": model_name}, timeout_override=30.0
             )
@@ -758,7 +786,7 @@ class OllamaSecurityAuditor:
             return AuditFinding(check_name="Model Weight Exfiltration", severity=Severity.INFO, status=CheckStatus.SKIPPED, details="No models found to probe.", remediation="N/A")
             
         test_model = body["models"][0]
-        digest = test_model.get("digest", "")
+        digest = sanitize_digest(test_model.get("digest", ""))
         if not digest.startswith("sha256:"): digest = f"sha256:{digest}"
             
         blob_url = f"/api/blobs/{digest}"
@@ -834,7 +862,7 @@ class OllamaSecurityAuditor:
         ]
         
         for model in body.get("models", [])[:3]:
-            m_name = model.get("name")
+            m_name = sanitize_model_name(model.get("name"))
             _, cfg, _ = await self._safe_request(session, "POST", "/api/show", json_payload={"name": m_name})
             if cfg and "system" in cfg:
                 prompt = cfg["system"]

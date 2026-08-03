@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import re
 
 import aiohttp
-from Ollama_Security_Auditor_Final import OllamaSecurityAuditor, CheckStatus, Severity, validate_ip_range_static
+from Ollama_Security_Auditor_Final import (
+    OllamaSecurityAuditor, CheckStatus, Severity, validate_ip_range_static,
+    sanitize_version, sanitize_model_name, sanitize_digest
+)
 
 # Context manager mock for aiohttp request
 class MockRequestCtx:
@@ -278,6 +281,34 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
+
+    def test_sanitize_version(self):
+        """Test that sanitize_version cleans version strings properly."""
+        self.assertEqual(sanitize_version("0.1.48"), "0.1.48")
+        self.assertEqual(sanitize_version("v0.1.48-rc1_test"), "v0.1.48-rc1_test")
+        # Should block CRLF, backticks, spaces, HTML/Markdown breakouts
+        self.assertEqual(sanitize_version("0.1.48\r\n"), "0.1.48")
+        self.assertEqual(sanitize_version("0.1.48`breakout`"), "0.1.48breakout")
+        self.assertEqual(sanitize_version("0.1.48 <script>alert(1)</script>"), "0.1.48scriptalert1script")
+        self.assertEqual(sanitize_version(None), "unknown")
+
+    def test_sanitize_model_name(self):
+        """Test that sanitize_model_name cleans model names properly."""
+        self.assertEqual(sanitize_model_name("llama3:latest"), "llama3:latest")
+        self.assertEqual(sanitize_model_name("user/llama3:latest"), "user/llama3:latest")
+        # Should block CRLF, backticks, spaces, HTML/Markdown breakouts, path traversal components
+        self.assertEqual(sanitize_model_name("llama3`breakout`"), "llama3breakout")
+        self.assertEqual(sanitize_model_name("llama3 <script>alert(1)</script>"), "llama3scriptalert1/script")
+        self.assertEqual(sanitize_model_name("../../etc/passwd"), "_/_/etc/passwd") # double-dots are replaced with underscore to prevent path traversal at the sanitization layer
+        self.assertEqual(sanitize_model_name(None), "unknown")
+
+    def test_sanitize_digest(self):
+        """Test that sanitize_digest cleans digests properly."""
+        self.assertEqual(sanitize_digest("sha256:12345abcdef"), "sha256:12345abcdef")
+        # Should block CRLF, spaces, backticks, HTML/Markdown breakouts
+        self.assertEqual(sanitize_digest("sha256:123\r\n"), "sha256:123")
+        self.assertEqual(sanitize_digest("sha256:123`breakout`"), "sha256:123breakout")
+        self.assertEqual(sanitize_digest(None), "")
 
 if __name__ == "__main__":
     unittest.main()
