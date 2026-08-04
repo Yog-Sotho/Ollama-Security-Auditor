@@ -8,7 +8,9 @@ from Ollama_Security_Auditor_Final import (
     OllamaSecurityAuditor,
     AuditFinding,
     Severity,
-    CheckStatus
+    CheckStatus,
+    colorize,
+    ANSI_BOLD_RED
 )
 
 def test_resolve_target_url():
@@ -163,3 +165,35 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+
+def test_colorize_degradation():
+    # When PYTEST_CURRENT_TEST is in environment, colorize should degrade and return original text
+    assert colorize("test", ANSI_BOLD_RED) == "test"
+
+    # Temporarily remove PYTEST_CURRENT_TEST and mock sys.stderr.isatty to verify colorizing
+    original_env = os.environ.get("PYTEST_CURRENT_TEST")
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        del os.environ["PYTEST_CURRENT_TEST"]
+
+    try:
+        class MockIsTTY:
+            def isatty(self):
+                return True
+
+        original_stderr = sys.stderr
+        sys.stderr = MockIsTTY()
+
+        try:
+            # Active coloring is enabled
+            assert colorize("test", ANSI_BOLD_RED) == f"{ANSI_BOLD_RED}test\033[0m"
+
+            # NO_COLOR environment variable disables coloring
+            os.environ["NO_COLOR"] = "1"
+            assert colorize("test", ANSI_BOLD_RED) == "test"
+            del os.environ["NO_COLOR"]
+        finally:
+            sys.stderr = original_stderr
+    finally:
+        if original_env is not None:
+            os.environ["PYTEST_CURRENT_TEST"] = original_env

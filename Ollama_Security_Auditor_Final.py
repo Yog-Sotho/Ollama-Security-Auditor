@@ -41,6 +41,26 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 # ==============================================================================
+# COLOR UTILITIES
+# ==============================================================================
+ANSI_BOLD_RED = "\033[1;31m"
+ANSI_BOLD_LIGHT_RED = "\033[1;91m"
+ANSI_BOLD_YELLOW = "\033[1;33m"
+ANSI_BOLD_BLUE = "\033[1;34m"
+ANSI_BOLD_WHITE = "\033[1;37m"
+ANSI_BOLD_GREEN = "\033[1;32m"
+
+def colorize(text: str, ansi_code: str) -> str:
+    """Apply terminal color formatting if stderr is a TTY and colors are not disabled."""
+    if not sys.stderr.isatty():
+        return text
+    if "NO_COLOR" in os.environ:
+        return text
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return text
+    return f"{ansi_code}{text}\033[0m"
+
+# ==============================================================================
 # ENUMS AND DATACLASSES
 # ==============================================================================
 class Severity(Enum):
@@ -896,10 +916,10 @@ class OllamaSecurityAuditor:
         """Helper to run a probe concurrently and print a clean CLI completion message."""
         try:
             res = await coro
-            print(f"  ✨ Completed: {name}", file=sys.stderr)
+            print(f"  ✨ {colorize('Completed', ANSI_BOLD_GREEN)}: {name}", file=sys.stderr)
             return res
         except Exception as e:
-            print(f"  💥 Failed: {name} ({e})", file=sys.stderr)
+            print(f"  💥 {colorize('Failed', ANSI_BOLD_RED)}: {name} ({e})", file=sys.stderr)
             return e
 
     async def run_audit(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
@@ -980,11 +1000,11 @@ class OllamaSecurityAuditor:
         print("=" * 70, file=sys.stderr)
 
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {colorize('[CRITICAL]', ANSI_BOLD_RED)}",
+            Severity.HIGH: f"🟠 {colorize('[HIGH]    ', ANSI_BOLD_LIGHT_RED)}",
+            Severity.MEDIUM: f"🟡 {colorize('[MEDIUM]  ', ANSI_BOLD_YELLOW)}",
+            Severity.LOW: f"🔵 {colorize('[LOW]     ', ANSI_BOLD_BLUE)}",
+            Severity.INFO: f"⚪ {colorize('[INFO]     ', ANSI_BOLD_WHITE)}"
         }
 
         stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
@@ -999,14 +1019,14 @@ class OllamaSecurityAuditor:
             for f in sorted_actionable:
                 if f.status == CheckStatus.VULNERABLE:
                     status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = colorize("❌ VULNERABLE", ANSI_BOLD_RED)
                 elif f.status == CheckStatus.ERROR:
                     status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = colorize("💥 ERROR", ANSI_BOLD_RED)
                 else:
                     status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
-                cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
+                    status_indicator = colorize("⚠️ WARNING", ANSI_BOLD_YELLOW)
+                cve_tag = f" {colorize(f'[{f.cve_id}]', ANSI_BOLD_YELLOW)}" if f.cve_id else ""
                 print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
                 print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
