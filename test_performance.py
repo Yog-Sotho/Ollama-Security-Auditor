@@ -153,6 +153,30 @@ class TestOllamaSecurityAuditor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status3, 200)
         session_mock.request.assert_called_once()
 
+    async def test_dynamic_advisories_global_caching(self):
+        # We need to test that _fetch_github_advisories, _fetch_nvd_advisories, _fetch_exploitdb_advisories are only called once.
+        import Ollama_Security_Auditor_Final
+        Ollama_Security_Auditor_Final._GLOBAL_ADVISORIES_FETCHED = False
+        Ollama_Security_Auditor_Final._GLOBAL_ADVISORIES_CACHE = []
+
+        with patch.object(self.auditor, "_fetch_github_advisories", AsyncMock(return_value=[{"cve_id": "CVE-2024-TEST", "summary": "test"}])) as mock_gh, \
+             patch.object(self.auditor, "_fetch_nvd_advisories", AsyncMock(return_value=[])) as mock_nvd, \
+             patch.object(self.auditor, "_fetch_exploitdb_advisories", AsyncMock(return_value=[])) as mock_edb:
+
+            # Call 1
+            await self.auditor._fetch_dynamic_advisories(self.session_mock)
+            # Call 2
+            await self.auditor._fetch_dynamic_advisories(self.session_mock)
+
+            # Assert they were only called once globally
+            mock_gh.assert_called_once()
+            mock_nvd.assert_called_once()
+            mock_edb.assert_called_once()
+
+            # Assert cache has been populated and copied to auditor instance
+            self.assertEqual(len(self.auditor._dynamic_advisories_cache), 1)
+            self.assertEqual(self.auditor._dynamic_advisories_cache[0]["cve_id"], "CVE-2024-TEST")
+
     async def test_report_generation(self):
         # Setup sample findings
         findings = [
