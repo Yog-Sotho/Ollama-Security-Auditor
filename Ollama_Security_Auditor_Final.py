@@ -117,6 +117,33 @@ def resolve_target_url(target: str) -> str:
         rest = f"{host_part}:11434{path_part}"
     return f"{prefix}{rest}"
 
+def sanitize_version(version: str) -> str:
+    """Sanitize version strings using safe character-whitelist filtering to prevent CRLF, traversal, and injection."""
+    if not isinstance(version, str):
+        return "unknown"
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-+_")
+    return "".join(c for c in version if c in allowed)
+
+def sanitize_model_name(model_name: str) -> str:
+    """Sanitize model names using safe character-whitelist filtering via comprehension and replacing double dots."""
+    if not isinstance(model_name, str):
+        return "unknown"
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:/@")
+    sanitized = "".join(c for c in model_name if c in allowed)
+    while ".." in sanitized:
+        sanitized = sanitized.replace("..", "_")
+    return sanitized
+
+def sanitize_digest(digest: str) -> str:
+    """Sanitize digest strings using character-whitelist filtering to prevent path traversal and injection."""
+    if not isinstance(digest, str):
+        return ""
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:")
+    sanitized = "".join(c for c in digest if c in allowed)
+    while ".." in sanitized:
+        sanitized = sanitized.replace("..", "_")
+    return sanitized
+
 def validate_ip_range_static(ip_range: str) -> List[str]:
     """Validates and expands a single IP range into individual IPs (IPv4 Only)."""
     ips = []
@@ -385,7 +412,7 @@ class OllamaSecurityAuditor:
         status, body, full_url = await self._safe_request(session, "GET", version_endpoint)
         
         if status == 200 and body and "version" in body:
-            self.detected_version = body.get("version", "unknown")
+            self.detected_version = sanitize_version(body.get("version", "unknown"))
             return AuditFinding(
                 check_name="API Connectivity & Version Detection", severity=Severity.INFO, status=CheckStatus.SECURE,
                 details=f"Ollama API reachable. Detected Version: {self.detected_version}",
@@ -496,12 +523,22 @@ class OllamaSecurityAuditor:
         # 1. Installed Models (/api/tags)
         s, b, _ = await self._safe_request(session, "GET", "/api/tags")
         if s == 200 and b and "models" in b:
-            self.discovered_models = [m.get("name", "unknown") for m in b["models"]]
+            self.discovered_models = [sanitize_model_name(m.get("name", "unknown")) for m in b["models"]]
         
         # 2. Loaded Models (/api/ps)
         s, b, _ = await self._safe_request(session, "GET", "/api/ps")
         if s == 200 and b and "models" in b:
-            self.loaded_models = b["models"]
+            # Loaded models need sanitization on their model names
+            sanitized_models = []
+            for m in b["models"]:
+                if isinstance(m, dict):
+                    m_copy = dict(m)
+                    if "name" in m_copy:
+                        m_copy["name"] = sanitize_model_name(m_copy["name"])
+                    sanitized_models.append(m_copy)
+                else:
+                    sanitized_models.append(m)
+            self.loaded_models = sanitized_models
 
     async def check_known_cves(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Check for known CVE vulnerabilities using version matching."""
@@ -649,7 +686,7 @@ class OllamaSecurityAuditor:
         os.makedirs(prompts_dir, exist_ok=True)
 
         for model in models:
-            model_name = model.get("name", "unknown")
+            model_name = sanitize_model_name(model.get("name", "unknown"))
             status, config_body, _ = await self._safe_request(
                 session, "POST", "/api/show", json_payload={"name": model_name}, timeout_override=30.0
             )
@@ -758,7 +795,7 @@ class OllamaSecurityAuditor:
             return AuditFinding(check_name="Model Weight Exfiltration", severity=Severity.INFO, status=CheckStatus.SKIPPED, details="No models found to probe.", remediation="N/A")
             
         test_model = body["models"][0]
-        digest = test_model.get("digest", "")
+        digest = sanitize_digest(test_model.get("digest", ""))
         if not digest.startswith("sha256:"): digest = f"sha256:{digest}"
             
         blob_url = f"/api/blobs/{digest}"

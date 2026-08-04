@@ -279,5 +279,26 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
 
+    def test_input_sanitization_helpers(self):
+        """Test the individual input sanitization helper functions."""
+        from Ollama_Security_Auditor_Final import sanitize_version, sanitize_model_name, sanitize_digest
+
+        # 1. Test Version Sanitization
+        self.assertEqual(sanitize_version("0.1.48\r\n"), "0.1.48")
+        self.assertEqual(sanitize_version("0.1.48<script>"), "0.1.48script")
+        self.assertEqual(sanitize_version("../0.1.48"), "..0.1.48")
+        self.assertEqual(sanitize_version(None), "unknown")
+
+        # 2. Test Model Name Sanitization
+        self.assertEqual(sanitize_model_name("llama3:latest\r\n"), "llama3:latest")
+        self.assertEqual(sanitize_model_name("llama3/../../evil"), "llama3/_/_/evil")
+        self.assertEqual(sanitize_model_name("gemma:2b<html_injection>"), "gemma:2bhtml_injection")
+        self.assertEqual(sanitize_model_name(None), "unknown")
+
+        # 3. Test Digest Sanitization
+        self.assertEqual(sanitize_digest("sha256:1234567890abcdef\r\n"), "sha256:1234567890abcdef")
+        self.assertEqual(sanitize_digest("sha256:123/../../etc/passwd"), "sha256:123__etcpasswd")
+        self.assertEqual(sanitize_digest(None), "")
+
 if __name__ == "__main__":
     unittest.main()

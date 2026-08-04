@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-04 - Path Traversal, CRLF Injection & breakout via Untrusted Target Responses
+**Vulnerability:** The security auditor extracted model configurations and versions directly from target endpoints. If the remote target was hostile, malicious, or acting as a honeypot, it could return version strings containing CRLF characters for injection, or model names containing directory traversal payloads (`..`) that could escape the prompt extraction directories.
+**Learning:** This existed because remote target metadata like version numbers, model names, and digest blobs were treated as trusted and processed directly without validation.
+**Prevention:** Always implement character-whitelist sanitization for all strings extracted from untrusted remote endpoints before passing them to internal processing, CLI output summaries, or file-writing pathways. Ensure character filter comprehensions are used instead of `re.sub` for model names to prevent interfering with test patches.
