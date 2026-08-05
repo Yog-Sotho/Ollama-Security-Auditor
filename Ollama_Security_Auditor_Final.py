@@ -32,6 +32,28 @@ from dataclasses import dataclass
 import aiohttp
 
 # ==============================================================================
+# TERMINAL COLORIZATION CONSTANTS & HELPERS
+# ==============================================================================
+ANSI_RED = "\033[91m"
+ANSI_ORANGE = "\033[38;5;208m"
+ANSI_YELLOW = "\033[93m"
+ANSI_GREEN = "\033[92m"
+ANSI_BLUE = "\033[94m"
+ANSI_CYAN = "\033[96m"
+ANSI_BOLD = "\033[1m"
+ANSI_RESET = "\033[0m"
+
+def colorize(text: str, ansi_code: str, stream=sys.stderr) -> str:
+    """Apply ANSI color codes if terminal supports it and color is not disabled."""
+    if os.environ.get("NO_COLOR"):
+        return text
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return text
+    if stream and hasattr(stream, "isatty") and not stream.isatty():
+        return text
+    return f"{ansi_code}{text}{ANSI_RESET}"
+
+# ==============================================================================
 # LOGGING CONFIGURATION
 # ==============================================================================
 logger = logging.getLogger(__name__)
@@ -904,9 +926,9 @@ class OllamaSecurityAuditor:
 
     async def run_audit(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Execute full security audit workflow"""
-        print(f"\n🔍 Scanning Target: {self.base_url}", file=sys.stderr)
-        print(f"🛡️  Mode: {'DEEP (Semi-Intrusive)' if self.deep_mode else 'STANDARD (Read-Only)'}", file=sys.stderr)
-        print("-" * 70, file=sys.stderr)
+        print(f"\n{colorize('🔍 Scanning Target:', ANSI_CYAN)} {colorize(self.base_url, ANSI_BOLD)}", file=sys.stderr)
+        print(f"{colorize('🛡️  Mode:', ANSI_CYAN)} {colorize('DEEP (Semi-Intrusive)' if self.deep_mode else 'STANDARD (Read-Only)', ANSI_BOLD)}", file=sys.stderr)
+        print(colorize("-" * 70, ANSI_CYAN), file=sys.stderr)
         start_time = time.time()
         self.findings = []
         
@@ -916,11 +938,11 @@ class OllamaSecurityAuditor:
         connectivity = await self.check_connectivity(session)
         self.findings.append(connectivity)
         if connectivity.status == CheckStatus.ERROR:
-            print("❌ Audit aborted: Target unreachable.", file=sys.stderr)
+            print(colorize("❌ Audit aborted: Target unreachable.", ANSI_RED + ANSI_BOLD), file=sys.stderr)
             return self.findings
-        print(f"✅ Target reachable. Detected Version: {self.detected_version}", file=sys.stderr)
+        print(f"{colorize('✅ Target reachable. Detected Version:', ANSI_GREEN)} {colorize(self.detected_version, ANSI_BOLD)}", file=sys.stderr)
         if self.discovered_models:
-            print(f"📦 Discovered Models: {', '.join(self.discovered_models)}", file=sys.stderr)
+            print(f"{colorize('📦 Discovered Models:', ANSI_CYAN)} {', '.join(colorize(m, ANSI_BOLD) for m in self.discovered_models)}", file=sys.stderr)
         
         print("📊 Evaluating known CVE vulnerabilities...", file=sys.stderr)
         cve_findings = await self.check_known_cves(session)
@@ -972,53 +994,58 @@ class OllamaSecurityAuditor:
         self.stats = {"total_checks": len(self.findings)}
         for s in Severity: self.stats[s.value] = sum(1 for f in self.findings if f.severity == s)
         duration = time.time() - start_time
-        print(f"\n📝 Audit completed in {duration:.2f} seconds", file=sys.stderr)
+        print(f"\n{colorize('📝 Audit completed in', ANSI_GREEN)} {colorize(f'{duration:.2f}', ANSI_BOLD + ANSI_GREEN)} {colorize('seconds', ANSI_GREEN)}", file=sys.stderr)
 
         # Micro-UX: Console-friendly results summary
-        print("\n" + "=" * 70, file=sys.stderr)
-        print("📊 AUDIT FINDINGS SUMMARY", file=sys.stderr)
-        print("=" * 70, file=sys.stderr)
+        print("\n" + colorize("=" * 70, ANSI_CYAN), file=sys.stderr)
+        print(colorize("📊 AUDIT FINDINGS SUMMARY", ANSI_BOLD + ANSI_CYAN), file=sys.stderr)
+        print(colorize("=" * 70, ANSI_CYAN), file=sys.stderr)
 
-        severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+        severity_emojis = {
+            Severity.CRITICAL: "🔴",
+            Severity.HIGH: "🟠",
+            Severity.MEDIUM: "🟡",
+            Severity.LOW: "🔵",
+            Severity.INFO: "⚪"
         }
 
-        stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
+        severity_colors = {
+            Severity.CRITICAL: colorize("🔴 [CRITICAL]", ANSI_BOLD + ANSI_RED),
+            Severity.HIGH: colorize("🟠 [HIGH]    ", ANSI_RED),
+            Severity.MEDIUM: colorize("🟡 [MEDIUM]  ", ANSI_YELLOW),
+            Severity.LOW: colorize("🔵 [LOW]     ", ANSI_BLUE),
+            Severity.INFO: colorize("⚪ [INFO]     ", ANSI_CYAN)
+        }
+
+        stats_line = " | ".join(f"{severity_emojis[s]} {colorize(s.value, ANSI_BOLD)}: {colorize(str(self.stats[s.value]), ANSI_GREEN if self.stats[s.value] == 0 else (ANSI_RED if s in (Severity.CRITICAL, Severity.HIGH) else ANSI_YELLOW))}" for s in Severity)
         print(f"Summary: {stats_line}", file=sys.stderr)
-        print("-" * 70, file=sys.stderr)
+        print(colorize("-" * 70, ANSI_CYAN), file=sys.stderr)
 
         actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING, CheckStatus.ERROR)]
         if actionable_findings:
-            print("⚠️  Action Required - Vulnerable/Warning/Error Findings:", file=sys.stderr)
+            print(colorize("⚠️  Action Required - Vulnerable/Warning/Error Findings:", ANSI_YELLOW + ANSI_BOLD), file=sys.stderr)
             severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
                 if f.status == CheckStatus.VULNERABLE:
-                    status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = colorize("❌ VULNERABLE", ANSI_RED + ANSI_BOLD)
                 elif f.status == CheckStatus.ERROR:
-                    status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = colorize("💥 ERROR", ANSI_RED + ANSI_BOLD)
                 else:
-                    status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
-                cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
-                print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
+                    status_indicator = colorize("⚠️ WARNING", ANSI_YELLOW)
+                cve_tag = f" {colorize(f'[{f.cve_id}]', ANSI_YELLOW)}" if f.cve_id else ""
+                print(f"  {severity_colors[f.severity]} {colorize(f.check_name, ANSI_BOLD)}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
-                print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
+                print(f"    └─ Fix:     {colorize(f.remediation, ANSI_GREEN)}", file=sys.stderr)
         else:
-            print("✅ All checked items are SECURE! No actions required.", file=sys.stderr)
+            print(colorize("✅ All checked items are SECURE! No actions required.", ANSI_GREEN + ANSI_BOLD), file=sys.stderr)
 
         # Micro-UX: Inform user of the absolute path to extracted LLM configurations
         prompts_dir = "extracted_prompts"
         if os.path.isdir(prompts_dir) and any(fname.endswith('.md') for fname in os.listdir(prompts_dir)):
-            print(f"📂 LLM Prompts extracted to: {os.path.abspath(prompts_dir)}", file=sys.stderr)
+            print(f"📂 {colorize('LLM Prompts extracted to:', ANSI_GREEN)} {colorize(os.path.abspath(prompts_dir), ANSI_BOLD + ANSI_CYAN)}", file=sys.stderr)
 
-        print("=" * 70 + "\n", file=sys.stderr)
+        print(colorize("=" * 70, ANSI_CYAN) + "\n", file=sys.stderr)
 
         return self.findings
 
@@ -1137,15 +1164,15 @@ class OllamaRangeScanner:
             pct = int(self.scanned_count / total_ips * 100)
             bar_len = 20
             filled_len = int(bar_len * self.scanned_count // total_ips)
-            bar = "█" * filled_len + "░" * (bar_len - filled_len)
+            colored_bar = colorize("█" * filled_len, ANSI_GREEN) + colorize("░" * (bar_len - filled_len), ANSI_BLUE)
 
             # In-place terminal progress update
-            sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
+            sys.stderr.write(f"\r\033[K🔍 Scanning: [{colored_bar}] {colorize(f'{pct}%', ANSI_BOLD + ANSI_YELLOW)} ({self.scanned_count}/{total_ips} IPs checked)")
             sys.stderr.flush()
 
             if not is_open: return
 
-            sys.stderr.write(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n")
+            sys.stderr.write(colorize(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n", ANSI_BOLD + ANSI_GREEN))
             sys.stderr.flush()
 
             target_url = f"http://{ip}:{port}"
@@ -1161,25 +1188,25 @@ class OllamaRangeScanner:
                     if output_base:
                         output_file = os.path.join(output_base, f"audit_{ip}")
                         report_path = auditor.generate_report(findings, output_file, 'md')
-                        sys.stderr.write(f"\r\033[K   📝 Report saved to: {report_path}\n")
+                        sys.stderr.write(f"\r\033[K   📝 {colorize('Report saved to:', ANSI_GREEN)} {colorize(report_path, ANSI_BOLD + ANSI_CYAN)}\n")
                         sys.stderr.flush()
             except Exception as e:
-                sys.stderr.write(f"\r\033[K   ❌ Audit failed for {ip}: {e}\n")
+                sys.stderr.write(colorize(f"\r\033[K   ❌ Audit failed for {ip}: {e}\n", ANSI_RED + ANSI_BOLD))
                 sys.stderr.flush()
 
-            sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
+            sys.stderr.write(f"\r\033[K🔍 Scanning: [{colored_bar}] {colorize(f'{pct}%', ANSI_BOLD + ANSI_YELLOW)} ({self.scanned_count}/{total_ips} IPs checked)")
             sys.stderr.flush()
 
     async def run(self, ip_range_str: str, port: int, output_base: str):
         """Main scanner entry point."""
-        print(f"\n🌐 Expanding range: {ip_range_str}...", file=sys.stderr)
+        print(f"\n{colorize('🌐 Expanding range:', ANSI_CYAN)} {colorize(ip_range_str, ANSI_BOLD)}...", file=sys.stderr)
         ips = validate_ip_range_static(ip_range_str)
         if not ips:
-            print("❌ No valid IPs found in range.", file=sys.stderr)
+            print(colorize("❌ No valid IPs found in range.", ANSI_RED + ANSI_BOLD), file=sys.stderr)
             return
 
-        print(f"🎯 Targeting {len(ips)} IPs on port {port}...", file=sys.stderr)
-        print("-" * 50, file=sys.stderr)
+        print(f"{colorize('🎯 Targeting', ANSI_CYAN)} {colorize(str(len(ips)), ANSI_BOLD + ANSI_YELLOW)} {colorize(f'IPs on port {port}...', ANSI_CYAN)}", file=sys.stderr)
+        print(colorize("-" * 50, ANSI_CYAN), file=sys.stderr)
         sem = asyncio.Semaphore(self.max_concurrent)
         
         self.scanned_count = 0
@@ -1193,9 +1220,9 @@ class OllamaRangeScanner:
         await asyncio.gather(*tasks)
         sys.stderr.write("\n")
         sys.stderr.flush()
-        print(f"\n{'='*50}", file=sys.stderr)
-        print("🏁 Range Scan Complete.", file=sys.stderr)
-        print(f"{'='*50}", file=sys.stderr)
+        print(f"\n{colorize('='*50, ANSI_CYAN)}", file=sys.stderr)
+        print(colorize("🏁 Range Scan Complete.", ANSI_BOLD + ANSI_GREEN), file=sys.stderr)
+        print(colorize('='*50, ANSI_CYAN), file=sys.stderr)
 
 # ==============================================================================
 # MAIN ENTRY POINT

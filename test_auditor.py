@@ -163,3 +163,51 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+
+def test_colorize_with_tty(monkeypatch):
+    from Ollama_Security_Auditor_Final import colorize, ANSI_RED
+    import sys
+
+    class MockStream:
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    stream = MockStream()
+    result = colorize("hello", ANSI_RED, stream=stream)
+    assert result == f"{ANSI_RED}hello\033[0m"
+
+
+def test_colorize_no_color(monkeypatch):
+    from Ollama_Security_Auditor_Final import colorize, ANSI_RED
+    import sys
+
+    class MockStream:
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    stream = MockStream()
+    result = colorize("hello", ANSI_RED, stream=stream)
+    assert result == "hello"
+
+
+def test_colorize_pytest(monkeypatch):
+    from Ollama_Security_Auditor_Final import colorize, ANSI_RED
+    import sys
+
+    class MockStream:
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "test_foo")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    stream = MockStream()
+    result = colorize("hello", ANSI_RED, stream=stream)
+    assert result == "hello"
