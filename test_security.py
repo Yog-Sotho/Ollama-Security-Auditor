@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import re
 
 import aiohttp
-from Ollama_Security_Auditor_Final import OllamaSecurityAuditor, CheckStatus, Severity, validate_ip_range_static
+from Ollama_Security_Auditor_Final import OllamaSecurityAuditor, CheckStatus, Severity, validate_ip_range_static, sanitize_version, sanitize_model_name, sanitize_digest
 
 # Context manager mock for aiohttp request
 class MockRequestCtx:
@@ -278,6 +278,30 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
+
+    def test_input_sanitization_defense_in_depth(self):
+        """Test input sanitization functions defend against path traversal, CRLF, and markdown/HTML breakouts."""
+        # 1. Version Sanitization
+        self.assertEqual(sanitize_version("0.1.48"), "0.1.48")
+        self.assertEqual(sanitize_version("0.1.48\r\nCRLF"), "0.1.48CRLF")
+        self.assertEqual(sanitize_version("../../etc/passwd"), "etcpasswd")
+        self.assertEqual(sanitize_version("0.1.48<script>alert(1)</script>"), "0.1.48scriptalert1script")
+        self.assertEqual(sanitize_version("0.1.48`breakout`"), "0.1.48breakout")
+
+        # 2. Model Name Sanitization
+        self.assertEqual(sanitize_model_name("llama3:latest"), "llama3:latest")
+        self.assertEqual(sanitize_model_name("llama3.1-coder:7b_q4"), "llama3.1-coder:7b_q4")
+        self.assertEqual(sanitize_model_name("username/llama3.1-coder:7b_q4"), "username/llama3.1-coder:7b_q4")
+        self.assertEqual(sanitize_model_name("model\r\nCRLF"), "modelCRLF")
+        self.assertEqual(sanitize_model_name("../../traversal"), "_/_/traversal")
+        self.assertEqual(sanitize_model_name("username/../../traversal"), "username/_/_/traversal")
+        self.assertEqual(sanitize_model_name("llama3<breakout>"), "llama3breakout")
+
+        # 3. Digest Sanitization
+        self.assertEqual(sanitize_digest("sha256:12345abc"), "sha256:12345abc")
+        self.assertEqual(sanitize_digest("sha256:12345\nCRLF"), "sha256:12345CRLF")
+        self.assertEqual(sanitize_digest("sha256:../traversal"), "sha256:traversal")
+        self.assertEqual(sanitize_digest("sha256:abc<script>"), "sha256:abcscript")
 
 if __name__ == "__main__":
     unittest.main()

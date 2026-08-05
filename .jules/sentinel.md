@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-05 - Namespace Preservation vs. Path Traversal in Model Name Sanitization
+**Vulnerability:** Untrusted remote target responses (versions, model names, digests) could contain path traversal (`..`), CRLF injection, and markdown/HTML breakouts, which could be logged or written into reports and filenames. Applying a strict alphanumeric-only whitelist on model names broke namespaced/registry models containing slashes `/` (e.g., `namespace/model:tag`), resulting in functional 404 API regressions.
+**Learning:** Model names often contain slashes denoting namespaces or registries for API queries. Standard file-writing safeguards (such as regex replacement) must handle files, but the overall API sanitization must preserve slashes to avoid functional breakage.
+**Prevention:** Whitelist slashes in the API-level model name sanitizer while sanitizing out double dots (`..`), but replace slashes with underscores or rely on existing strict filesystem path bounds/compares when constructing local prompt configuration filenames.
