@@ -24,6 +24,7 @@ import os
 import re
 import time
 import logging
+import functools
 from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 from ipaddress import IPv4Network, IPv4Address
@@ -170,6 +171,7 @@ def validate_ip_range_static(ip_range: str) -> List[str]:
 # ==============================================================================
 # VERSION UTILITIES & CVE REGISTRY
 # ==============================================================================
+@functools.lru_cache(maxsize=128)
 def _parse_version_tuple(ver_str: str) -> Tuple[int, ...]:
     """Safely parse semantic version strings to comparable tuples."""
     clean = re.sub(r'[^0-9.]', '', ver_str.split('-')[0])
@@ -252,6 +254,9 @@ CVE_REGISTRY: List[Dict[str, Any]] = [
 # ==============================================================================
 class OllamaSecurityAuditor:
     """Professional-grade security auditor for exposed Ollama API instances."""
+    _global_advisories_cache: Optional[List[Dict[str, Any]]] = None
+    _global_advisories_locks: Dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
     def __init__(
         self,
         target_url: str,
@@ -470,26 +475,38 @@ class OllamaSecurityAuditor:
 
     async def _fetch_dynamic_advisories(self, session: aiohttp.ClientSession):
         """Fetch live advisories from multiple sources concurrently: GitHub, NVD, ExploitDB"""
-        logger.info("🌐 Fetching dynamic advisories from multiple sources concurrently...")
-        seen_ids = set()
+        # Bolt Optimization: Use a lazy-initialized global async Lock bound to the active event loop
+        loop = asyncio.get_running_loop()
+        if loop not in OllamaSecurityAuditor._global_advisories_locks:
+            OllamaSecurityAuditor._global_advisories_locks[loop] = asyncio.Lock()
 
-        # Execute independent external API requests concurrently to optimize network latency
-        results = await asyncio.gather(
-            self._fetch_github_advisories(session),
-            self._fetch_nvd_advisories(session),
-            self._fetch_exploitdb_advisories(session),
-            return_exceptions=True
-        )
+        async with OllamaSecurityAuditor._global_advisories_locks[loop]:
+            if OllamaSecurityAuditor._global_advisories_cache is not None:
+                self._dynamic_advisories_cache = list(OllamaSecurityAuditor._global_advisories_cache)
+                logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories from cache.")
+                return
 
-        for res_list in results:
-            if isinstance(res_list, list):
-                for advisory in res_list:
-                    cve_id = advisory["cve_id"]
-                    if cve_id not in seen_ids:
-                        seen_ids.add(cve_id)
-                        self._dynamic_advisories_cache.append(advisory)
+            logger.info("🌐 Fetching dynamic advisories from multiple sources concurrently...")
+            seen_ids = set()
 
-        logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories.")
+            # Execute independent external API requests concurrently to optimize network latency
+            results = await asyncio.gather(
+                self._fetch_github_advisories(session),
+                self._fetch_nvd_advisories(session),
+                self._fetch_exploitdb_advisories(session),
+                return_exceptions=True
+            )
+
+            for res_list in results:
+                if isinstance(res_list, list):
+                    for advisory in res_list:
+                        cve_id = advisory["cve_id"]
+                        if cve_id not in seen_ids:
+                            seen_ids.add(cve_id)
+                            self._dynamic_advisories_cache.append(advisory)
+
+            OllamaSecurityAuditor._global_advisories_cache = list(self._dynamic_advisories_cache)
+            logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories.")
 
     async def discover_models(self, session: aiohttp.ClientSession):
         """v1.5 Feature: Discover installed and loaded models"""
