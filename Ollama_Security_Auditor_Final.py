@@ -86,6 +86,14 @@ class CustomEncoder(json.JSONEncoder):
 # ==============================================================================
 # URL & IP UTILITIES
 # ==============================================================================
+def _should_colorize() -> bool:
+    """Check if the terminal environment supports ANSI colorization."""
+    return (
+        sys.stderr.isatty() and
+        "NO_COLOR" not in os.environ and
+        "PYTEST_CURRENT_TEST" not in os.environ
+    )
+
 def resolve_target_url(target: str) -> str:
     """Resolves target to http://IP:11434 format with validation."""
     target = target.strip().rstrip('/')
@@ -979,12 +987,19 @@ class OllamaSecurityAuditor:
         print("📊 AUDIT FINDINGS SUMMARY", file=sys.stderr)
         print("=" * 70, file=sys.stderr)
 
+        color_cr = "\033[91m" if _should_colorize() else ""
+        color_hi = "\033[93m" if _should_colorize() else ""
+        color_me = "\033[93m" if _should_colorize() else ""
+        color_lo = "\033[94m" if _should_colorize() else ""
+        color_in = "\033[37m" if _should_colorize() else ""
+        color_reset = "\033[0m" if _should_colorize() else ""
+
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {color_cr}[CRITICAL]{color_reset}",
+            Severity.HIGH: f"🟠 {color_hi}[HIGH]    {color_reset}",
+            Severity.MEDIUM: f"🟡 {color_me}[MEDIUM]  {color_reset}",
+            Severity.LOW: f"🔵 {color_lo}[LOW]     {color_reset}",
+            Severity.INFO: f"⚪ {color_in}[INFO]     {color_reset}"
         }
 
         stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
@@ -997,15 +1012,19 @@ class OllamaSecurityAuditor:
             severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
+                color_vuln = "\033[91m" if _should_colorize() else ""
+                color_warn = "\033[93m" if _should_colorize() else ""
+                color_err = "\033[91m" if _should_colorize() else ""
+
                 if f.status == CheckStatus.VULNERABLE:
                     status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = f"❌ {color_vuln}VULNERABLE{color_reset}"
                 elif f.status == CheckStatus.ERROR:
                     status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = f"💥 {color_err}ERROR{color_reset}"
                 else:
                     status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
+                    status_indicator = f"⚠️ {color_warn}WARNING{color_reset}"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
                 print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)

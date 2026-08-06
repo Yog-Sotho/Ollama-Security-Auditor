@@ -8,7 +8,8 @@ from Ollama_Security_Auditor_Final import (
     OllamaSecurityAuditor,
     AuditFinding,
     Severity,
-    CheckStatus
+    CheckStatus,
+    _should_colorize
 )
 
 def test_resolve_target_url():
@@ -163,3 +164,23 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+
+def test_should_colorize_behavior(monkeypatch):
+    # Test when inside pytest (should always be False by default during test run)
+    assert _should_colorize() is False
+
+    # Mock isatty to return True and remove pytest env var
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    assert _should_colorize() is True
+
+    # Check that NO_COLOR disables colorization
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert _should_colorize() is False
+
+    # Check that isatty=False disables colorization
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    assert _should_colorize() is False
