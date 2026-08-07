@@ -1,3 +1,7 @@
+## 2026-07-31 - [Semantic Version Memoization]
+**Learning:** Repetitive parsing of semantic version strings in the vulnerability range checker for numerous static and dynamic CVE rules introduces CPU bottleneck, involving regex compilation, string manipulation, and tuple parsing overhead on every check loop execution. Applying a memoization cache to the parser optimizes comparison latency.
+**Action:** Decorate `_parse_version_tuple` with `functools.lru_cache(maxsize=128)` to memoize parsed semantic version tuples.
+
 ## 2026-07-28 - [Target Audit Concurrency]
 **Learning:** Sequential async executions of independent probes (such as WAF detection, weight exfil, streaming DoS, modelfile RCE, metadata SSRF, token brute-forcing, and prompt injection leakage) degrade audit times linearly. Batching them with `asyncio.gather` reduces the overall latency from several seconds to the duration of the longest request.
 **Action:** Replace the sequential await/append patterns with `asyncio.gather` for independent probe endpoints in `OllamaSecurityAuditor.run_audit`.
