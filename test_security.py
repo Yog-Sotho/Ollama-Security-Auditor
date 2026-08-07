@@ -279,5 +279,76 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
 
+    async def test_disable_ssl_verify_passes_ssl_false(self):
+        """Test that _safe_request sets ssl=False when disable_ssl_verify is True."""
+        auditor = OllamaSecurityAuditor(self.target_url, disable_ssl_verify=True)
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.headers = {}
+        mock_response.json = AsyncMock(return_value={})
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=MockRequestCtx(mock_response))
+
+        await auditor._safe_request(mock_session, "GET", "/api/version")
+
+        # Verify that mock_session.request was called with ssl=False
+        _, kwargs = mock_session.request.call_args
+        self.assertEqual(kwargs.get("ssl"), False)
+
+    async def test_extract_model_configs_permissions(self):
+        """Test that extracted prompt files are written with 0o600 permissions."""
+        mock_response_tags = MagicMock()
+        mock_response_tags.status = 200
+        mock_response_tags.headers = {}
+        mock_response_tags.json = AsyncMock(return_value={
+            "models": [{"name": "llama3:latest"}]
+        })
+
+        mock_response_show = MagicMock()
+        mock_response_show.status = 200
+        mock_response_show.headers = {}
+        mock_response_show.json = AsyncMock(return_value={
+            "system": "System Prompt",
+            "template": "...",
+            "parameters": "...",
+            "modelfile": "FROM llama3"
+        })
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(side_effect=lambda method, url, **kwargs: MockRequestCtx(
+            mock_response_tags if "/api/tags" in url else mock_response_show
+        ))
+
+        findings = await self.auditor.extract_model_configs(mock_session)
+        expected_path = os.path.join(self.prompts_dir, "llama3_latest.md")
+        self.assertTrue(os.path.exists(expected_path))
+
+        if os.name != 'nt':
+            mode = os.stat(expected_path).st_mode & 0o777
+            self.assertEqual(mode, 0o600)
+
+    def test_generate_report_permissions_md(self):
+        """Test that Markdown report is written with 0o600 permissions."""
+        findings = []
+        output_file = os.path.join(self.prompts_dir, "test_report")
+        report_path = self.auditor.generate_report(findings, output_file, "md")
+        self.assertTrue(os.path.exists(report_path))
+
+        if os.name != 'nt':
+            mode = os.stat(report_path).st_mode & 0o777
+            self.assertEqual(mode, 0o600)
+
+    def test_generate_report_permissions_json(self):
+        """Test that JSON report is written with 0o600 permissions."""
+        findings = []
+        output_file = os.path.join(self.prompts_dir, "test_report")
+        report_path = self.auditor.generate_report(findings, output_file, "json")
+        self.assertTrue(os.path.exists(report_path))
+
+        if os.name != 'nt':
+            mode = os.stat(report_path).st_mode & 0o777
+            self.assertEqual(mode, 0o600)
+
 if __name__ == "__main__":
     unittest.main()

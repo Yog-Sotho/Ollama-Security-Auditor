@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-01 - SSL Verification Bypass Bug and Insecure File/Report Writing Permissions
+**Vulnerability:** First, passing `ssl=None` to `aiohttp.ClientSession.request` does not disable SSL validation; instead, it falls back to standard certificate validation, meaning `--disable-ssl-verify` was broken. Second, extracted model configurations and reports were written using default file creation modes (`0o644`), which made sensitive system prompts and findings details world-readable (CWE-276), and lacked protection against symlink exploitation (CWE-59).
+**Learning:** This existed because aiohttp's fallback behavior for `ssl=None` was misunderstood, and file-writing functions did not enforce owner-only permissions or use the `os.O_NOFOLLOW` flag during file creation.
+**Prevention:** Always use `ssl=False` explicitly to disable certificate verification in aiohttp. Furthermore, use `os.open` with `os.O_NOFOLLOW` and restrict creation mode to `0o600` for files containing sensitive data like credentials, proprietary prompts, or security reports.

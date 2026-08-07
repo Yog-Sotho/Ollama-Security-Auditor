@@ -310,7 +310,7 @@ class OllamaSecurityAuditor:
             url = endpoint
         else:
             url = f"{self.base_url}{endpoint}"
-        ssl_ctx = None if self.disable_ssl_verify else True
+        ssl_ctx = False if self.disable_ssl_verify else True
         req_timeout = aiohttp.ClientTimeout(total=timeout_override or self.timeout)
         max_retries = 3
         retry_count = 0
@@ -675,7 +675,9 @@ class OllamaSecurityAuditor:
                 modelfile_clean = self._clean_modelfile(modelfile_raw)
 
                 try:
-                    with open(prompt_path, 'w', encoding='utf-8') as f:
+                    # Secure file writing: Create with owner-only (0o600) permissions and do not follow symlinks
+                    fd = os.open(prompt_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
                         f.write(f"# 📄 Full Model Configuration: `{model_name}`\n\n")
 
                         f.write("## 🧠 1. System Prompt\n")
@@ -783,7 +785,7 @@ class OllamaSecurityAuditor:
         try:
             async with session.post(
                 f"{self.base_url}/api/chat", json=payload, timeout=aiohttp.ClientTimeout(total=3.0),
-                ssl=None if self.disable_ssl_verify else True
+                ssl=False if self.disable_ssl_verify else True
             ) as resp:
                 elapsed = time.time() - start
                 if resp.status == 200 and elapsed < 1.0:
@@ -1044,7 +1046,9 @@ class OllamaSecurityAuditor:
                     for f in findings
                 ]
             }
-            with open(report_path, 'w', encoding='utf-8') as file: json.dump(report_data, file, indent=2, cls=CustomEncoder)
+            # Secure file writing: Create with owner-only (0o600) permissions and do not follow symlinks
+            fd = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as file: json.dump(report_data, file, indent=2, cls=CustomEncoder)
             return os.path.abspath(report_path)
             
         elif format_type == 'md':
@@ -1101,7 +1105,9 @@ class OllamaSecurityAuditor:
                     lines.append("  ```")
                 lines.append("---"); lines.append("")
                 
-            with open(report_path, 'w', encoding='utf-8') as file: file.write('\n'.join(lines))
+            # Secure file writing: Create with owner-only (0o600) permissions and do not follow symlinks
+            fd = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as file: file.write('\n'.join(lines))
             return os.path.abspath(report_path)
         else:
             raise ValueError(f"Unsupported format: {format_type}")
