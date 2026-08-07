@@ -284,6 +284,16 @@ class OllamaSecurityAuditor:
         self.loaded_models: List[Dict] = []
         self._request_cache: Dict[str, Any] = {}
 
+    def _colorize(self, text: str, color_code: str) -> str:
+        """Colorize text with ANSI codes if terminal supports colors and not disabled."""
+        if not sys.stderr.isatty():
+            return text
+        if "NO_COLOR" in os.environ:
+            return text
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return text
+        return f"\033[{color_code}m{text}\033[0m"
+
     async def _safe_request(
         self,
         session: aiohttp.ClientSession,
@@ -980,11 +990,11 @@ class OllamaSecurityAuditor:
         print("=" * 70, file=sys.stderr)
 
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {self._colorize('[CRITICAL]', '91')}",
+            Severity.HIGH: f"🟠 {self._colorize('[HIGH]    ', '91')}",
+            Severity.MEDIUM: f"🟡 {self._colorize('[MEDIUM]  ', '93')}",
+            Severity.LOW: f"🔵 {self._colorize('[LOW]     ', '94')}",
+            Severity.INFO: f"⚪ {self._colorize('[INFO]     ', '37')}"
         }
 
         stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
@@ -999,13 +1009,13 @@ class OllamaSecurityAuditor:
             for f in sorted_actionable:
                 if f.status == CheckStatus.VULNERABLE:
                     status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = f"❌ {self._colorize('VULNERABLE', '91')}"
                 elif f.status == CheckStatus.ERROR:
                     status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = f"💥 {self._colorize('ERROR', '91')}"
                 else:
                     status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
+                    status_indicator = f"⚠️ {self._colorize('WARNING', '93')}"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
                 print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)

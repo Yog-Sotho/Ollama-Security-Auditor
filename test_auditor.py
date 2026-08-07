@@ -163,3 +163,29 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+
+def test_colorize_and_degradation(monkeypatch):
+    auditor = OllamaSecurityAuditor(target_url="localhost")
+
+    # 1. Test when coloring should be active (mock TTY=True, clear NO_COLOR and PYTEST_CURRENT_TEST)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    result_colored = auditor._colorize("VULNERABLE", "91")
+    assert result_colored == "\033[91mVULNERABLE\033[0m"
+
+    # 2. Test when sys.stderr.isatty() is False -> should not colorize
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    assert auditor._colorize("VULNERABLE", "91") == "VULNERABLE"
+
+    # 3. Test when NO_COLOR is present -> should not colorize
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert auditor._colorize("VULNERABLE", "91") == "VULNERABLE"
+
+    # 4. Test when PYTEST_CURRENT_TEST is present -> should not colorize
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    assert auditor._colorize("VULNERABLE", "91") == "VULNERABLE"
