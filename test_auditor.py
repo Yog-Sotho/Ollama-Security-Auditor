@@ -163,3 +163,39 @@ def test_generate_report_returns_absolute_path(tmp_path):
 
     assert os.path.isabs(report_path)
     assert os.path.exists(report_path)
+
+
+def test_colorize_behavior(monkeypatch):
+    auditor = OllamaSecurityAuditor(target_url="localhost")
+
+    # Mock _should_color to return True
+    monkeypatch.setattr(auditor, "_should_color", lambda: True)
+    colored_text = auditor._colorize("CRITICAL", "red")
+    assert colored_text == "\033[91mCRITICAL\033[0m"
+
+    # Mock _should_color to return False
+    monkeypatch.setattr(auditor, "_should_color", lambda: False)
+    plain_text = auditor._colorize("CRITICAL", "red")
+    assert plain_text == "CRITICAL"
+
+    # Restore real _should_color method
+    monkeypatch.delattr(auditor, "_should_color")
+
+    # Test the environment variable checks of the real _should_color method
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+    # 1. With NO_COLOR env var
+    monkeypatch.setenv("NO_COLOR", "1")
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert auditor._should_color() is False
+
+    # 2. With PYTEST_CURRENT_TEST env var
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "test_colorize_behavior")
+    assert auditor._should_color() is False
+
+    # 3. Clean environment (NO_COLOR/PYTEST_CURRENT_TEST unset) and isatty() is True
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert auditor._should_color() is True

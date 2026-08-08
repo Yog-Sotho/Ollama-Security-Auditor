@@ -284,6 +284,36 @@ class OllamaSecurityAuditor:
         self.loaded_models: List[Dict] = []
         self._request_cache: Dict[str, Any] = {}
 
+    def _should_color(self) -> bool:
+        """Check if terminal colorization should be enabled."""
+        if os.environ.get("NO_COLOR") is not None:
+            return False
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return False
+        try:
+            return sys.stderr.isatty()
+        except Exception:
+            return False
+
+    def _colorize(self, text: str, color: str) -> str:
+        """Apply ANSI escape codes to text if color is enabled."""
+        if not self._should_color():
+            return text
+        colors = {
+            "red": "\033[91m",
+            "yellow": "\033[93m",
+            "green": "\033[92m",
+            "blue": "\033[94m",
+            "cyan": "\033[96m",
+            "gray": "\033[90m",
+            "bold": "\033[1m",
+            "reset": "\033[0m"
+        }
+        code = colors.get(color, "")
+        if not code:
+            return text
+        return f"{code}{text}{colors['reset']}"
+
     async def _safe_request(
         self,
         session: aiohttp.ClientSession,
@@ -980,11 +1010,11 @@ class OllamaSecurityAuditor:
         print("=" * 70, file=sys.stderr)
 
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {self._colorize('[CRITICAL]', 'red')}",
+            Severity.HIGH: f"🟠 {self._colorize('[HIGH]    ', 'yellow')}",
+            Severity.MEDIUM: f"🟡 {self._colorize('[MEDIUM]  ', 'cyan')}",
+            Severity.LOW: f"🔵 {self._colorize('[LOW]     ', 'gray')}",
+            Severity.INFO: f"⚪ {self._colorize('[INFO]     ', 'gray')}"
         }
 
         stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
@@ -999,13 +1029,13 @@ class OllamaSecurityAuditor:
             for f in sorted_actionable:
                 if f.status == CheckStatus.VULNERABLE:
                     status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = f"❌ {self._colorize('VULNERABLE', 'red')}"
                 elif f.status == CheckStatus.ERROR:
                     status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = f"💥 {self._colorize('ERROR', 'red')}"
                 else:
                     status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
+                    status_indicator = f"⚠️ {self._colorize('WARNING', 'yellow')}"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
                 print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
