@@ -24,6 +24,7 @@ import os
 import re
 import time
 import logging
+from functools import lru_cache
 from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 from ipaddress import IPv4Network, IPv4Address
@@ -170,6 +171,7 @@ def validate_ip_range_static(ip_range: str) -> List[str]:
 # ==============================================================================
 # VERSION UTILITIES & CVE REGISTRY
 # ==============================================================================
+@lru_cache(maxsize=128)
 def _parse_version_tuple(ver_str: str) -> Tuple[int, ...]:
     """Safely parse semantic version strings to comparable tuples."""
     clean = re.sub(r'[^0-9.]', '', ver_str.split('-')[0])
