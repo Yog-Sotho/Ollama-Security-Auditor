@@ -279,5 +279,24 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(findings_edb), 1)
             self.assertEqual(findings_edb[0]["cve_id"], "EDB-12345")
 
+    def test_secure_write_permissions(self):
+        """Test that files written by _secure_write_file have owner-only permissions (0o600)."""
+        import stat
+        from Ollama_Security_Auditor_Final import _secure_write_file
+        test_file = os.path.join(self.prompts_dir, "test_perm.txt")
+        os.makedirs(self.prompts_dir, exist_ok=True)
+        _secure_write_file(test_file, "secure content")
+
+        # Verify file existence and content
+        self.assertTrue(os.path.exists(test_file))
+        with open(test_file, 'r', encoding='utf-8') as f:
+            self.assertEqual(f.read(), "secure content")
+
+        # On POSIX systems, check permissions are exactly 0o600
+        if os.name == 'posix':
+            file_mode = os.stat(test_file).st_mode
+            permissions = stat.S_IMODE(file_mode)
+            self.assertEqual(permissions, 0o600)
+
 if __name__ == "__main__":
     unittest.main()

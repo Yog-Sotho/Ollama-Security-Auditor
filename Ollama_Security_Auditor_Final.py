@@ -167,6 +167,22 @@ def validate_ip_range_static(ip_range: str) -> List[str]:
         pass
     return []
 
+def _secure_write_file(filepath: str, content: str) -> None:
+    """Writes a file securely to protect against symlink attacks (CWE-59) and local information disclosure (CWE-276) using strict owner-only permissions."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(filepath, flags, 0o600)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
 # ==============================================================================
 # VERSION UTILITIES & CVE REGISTRY
 # ==============================================================================
@@ -675,34 +691,35 @@ class OllamaSecurityAuditor:
                 modelfile_clean = self._clean_modelfile(modelfile_raw)
 
                 try:
-                    with open(prompt_path, 'w', encoding='utf-8') as f:
-                        f.write(f"# 📄 Full Model Configuration: `{model_name}`\n\n")
+                    content_lines = [
+                        f"# 📄 Full Model Configuration: `{model_name}`\n\n",
+                        "## 🧠 1. System Prompt\n"
+                    ]
+                    if system_prompt.strip():
+                        # Write the entire prompt, preserving all newlines
+                        content_lines.append(f"```\n{system_prompt}\n```\n\n")
+                    else:
+                        content_lines.append("> *No system prompt defined.*\n\n")
 
-                        f.write("## 🧠 1. System Prompt\n")
-                        if system_prompt.strip():
-                            # Write the entire prompt, preserving all newlines
-                            f.write(f"```\n{system_prompt}\n```\n\n")
-                        else:
-                            f.write("> *No system prompt defined.*\n\n")
+                    content_lines.append("## 📝 2. Chat Template\n")
+                    if template.strip():
+                        content_lines.append(f"```\n{template}\n```\n\n")
+                    else:
+                        content_lines.append("> *No custom template defined.*\n\n")
 
-                        f.write("## 📝 2. Chat Template\n")
-                        if template.strip():
-                            f.write(f"```\n{template}\n```\n\n")
-                        else:
-                            f.write("> *No custom template defined.*\n\n")
+                    content_lines.append("## ⚙️ 3. Parameters\n")
+                    if parameters.strip():
+                        content_lines.append(f"```\n{parameters}\n```\n\n")
+                    else:
+                        content_lines.append("> *Default parameters used.*\n\n")
 
-                        f.write("## ⚙️ 3. Parameters\n")
-                        if parameters.strip():
-                            f.write(f"```\n{parameters}\n```\n\n")
-                        else:
-                            f.write("> *Default parameters used.*\n\n")
+                    content_lines.append("## 🐳 4. Modelfile\n")
+                    if modelfile_clean.strip():
+                        content_lines.append(f"```\n{modelfile_clean}\n```\n\n")
+                    else:
+                        content_lines.append("> *Modelfile not available.*\n\n")
 
-                        f.write("## 🐳 4. Modelfile\n")
-                        if modelfile_clean.strip():
-                            f.write(f"```\n{modelfile_clean}\n```\n\n")
-                        else:
-                            f.write("> *Modelfile not available.*\n\n")
-
+                    _secure_write_file(prompt_path, "".join(content_lines))
                     logger.info(f"💾 Extracted & Saved full config: {os.path.abspath(prompt_path)}")
 
                     # Scan all extracted content for sensitive patterns
@@ -1044,7 +1061,8 @@ class OllamaSecurityAuditor:
                     for f in findings
                 ]
             }
-            with open(report_path, 'w', encoding='utf-8') as file: json.dump(report_data, file, indent=2, cls=CustomEncoder)
+            report_data_str = json.dumps(report_data, indent=2, cls=CustomEncoder)
+            _secure_write_file(report_path, report_data_str)
             return os.path.abspath(report_path)
             
         elif format_type == 'md':
@@ -1101,7 +1119,7 @@ class OllamaSecurityAuditor:
                     lines.append("  ```")
                 lines.append("---"); lines.append("")
                 
-            with open(report_path, 'w', encoding='utf-8') as file: file.write('\n'.join(lines))
+            _secure_write_file(report_path, '\n'.join(lines))
             return os.path.abspath(report_path)
         else:
             raise ValueError(f"Unsupported format: {format_type}")

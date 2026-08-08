@@ -17,3 +17,8 @@
 **Vulnerability:** External advisory fetching functions (for GitHub Security, NVD, and ExploitDB APIs) performed raw asynchronous HTTP requests and parsed response bodies without limit. If the external APIs were compromised, hijacked via DNS, or returned an unexpectedly oversized response, the auditor would face OOM/Self-DoS.
 **Learning:** These API requests bypass the custom safe request handler, leaving them without defense-in-depth safeguards like content length validation or chunk-based limited reads.
 **Prevention:** Generalize HTTP wrappers to support both relative and absolute URLs so that all external third-party API fetches run through the exact same centralized safe request wrapper.
+
+## 2026-08-01 - Securing Generated Artifacts from Local Information Disclosure (CWE-276) and Symlink Attacks (CWE-59)
+**Vulnerability:** Saved reports and extracted model configurations (system prompts, custom templates, modelfiles) were written using standard Python `open(path, 'w')` calls. This created files with default umask permissions (often making them readable by other local users on a multi-user machine) and left the application vulnerable to symlink-following attacks, where a malicious local user places a symlink in the output directory to overwrite critical system files.
+**Learning:** Standard file-writing abstractions do not automatically enforce the principle of least privilege or protect against symlink-following attacks on shared platforms.
+**Prevention:** Implement a central helper `_secure_write_file` using low-level `os.open` with a strict file creation mode (`0o600`) and the `O_NOFOLLOW` flag to guarantee owner-only access and completely mitigate link-following attacks before writing file content.
