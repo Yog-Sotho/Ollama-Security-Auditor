@@ -224,6 +224,18 @@ def _version_in_range(target_ver: str, range_str: str) -> bool:
             if target != _parse_version_tuple(cond[2:]): return False
     return True
 
+# Global cache and lock for dynamic advisories to avoid redundant network requests across multiple auditor instances (e.g., during range scans).
+_global_dynamic_advisories: List[Dict[str, Any]] = []
+_global_dynamic_advisories_fetched: bool = False
+_global_dynamic_advisories_lock: asyncio.Lock = None
+
+def _get_global_dynamic_advisories_lock() -> asyncio.Lock:
+    """Lazy initialize global lock in the active event loop context."""
+    global _global_dynamic_advisories_lock
+    if _global_dynamic_advisories_lock is None:
+        _global_dynamic_advisories_lock = asyncio.Lock()
+    return _global_dynamic_advisories_lock
+
 CVE_REGISTRY: List[Dict[str, Any]] = [
     {
         "cve_id": "CVE-2024-37032", "title": "ProbLlama: Critical Path Traversal & SSRF",
@@ -498,26 +510,37 @@ class OllamaSecurityAuditor:
 
     async def _fetch_dynamic_advisories(self, session: aiohttp.ClientSession):
         """Fetch live advisories from multiple sources concurrently: GitHub, NVD, ExploitDB"""
-        logger.info("🌐 Fetching dynamic advisories from multiple sources concurrently...")
-        seen_ids = set()
+        global _global_dynamic_advisories, _global_dynamic_advisories_fetched
 
-        # Execute independent external API requests concurrently to optimize network latency
-        results = await asyncio.gather(
-            self._fetch_github_advisories(session),
-            self._fetch_nvd_advisories(session),
-            self._fetch_exploitdb_advisories(session),
-            return_exceptions=True
-        )
+        lock = _get_global_dynamic_advisories_lock()
+        async with lock:
+            if _global_dynamic_advisories_fetched:
+                logger.info("🌐 Using globally cached dynamic advisories.")
+                self._dynamic_advisories_cache = list(_global_dynamic_advisories)
+                return
 
-        for res_list in results:
-            if isinstance(res_list, list):
-                for advisory in res_list:
-                    cve_id = advisory["cve_id"]
-                    if cve_id not in seen_ids:
-                        seen_ids.add(cve_id)
-                        self._dynamic_advisories_cache.append(advisory)
+            logger.info("🌐 Fetching dynamic advisories from multiple sources concurrently...")
+            seen_ids = set()
 
-        logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories.")
+            # Execute independent external API requests concurrently to optimize network latency
+            results = await asyncio.gather(
+                self._fetch_github_advisories(session),
+                self._fetch_nvd_advisories(session),
+                self._fetch_exploitdb_advisories(session),
+                return_exceptions=True
+            )
+
+            for res_list in results:
+                if isinstance(res_list, list):
+                    for advisory in res_list:
+                        cve_id = advisory["cve_id"]
+                        if cve_id not in seen_ids:
+                            seen_ids.add(cve_id)
+                            _global_dynamic_advisories.append(advisory)
+
+            _global_dynamic_advisories_fetched = True
+            self._dynamic_advisories_cache = list(_global_dynamic_advisories)
+            logger.info(f"✅ Loaded {len(self._dynamic_advisories_cache)} dynamic advisories (and globally cached).")
 
     async def discover_models(self, session: aiohttp.ClientSession):
         """v1.5 Feature: Discover installed and loaded models"""

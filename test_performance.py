@@ -153,6 +153,43 @@ class TestOllamaSecurityAuditor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status3, 200)
         session_mock.request.assert_called_once()
 
+    async def test_global_dynamic_advisories_caching(self):
+        # Reset the global cached state first
+        import Ollama_Security_Auditor_Final
+        Ollama_Security_Auditor_Final._global_dynamic_advisories = []
+        Ollama_Security_Auditor_Final._global_dynamic_advisories_fetched = False
+        Ollama_Security_Auditor_Final._global_dynamic_advisories_lock = None
+
+        # Instantiate multiple auditors
+        auditor1 = OllamaSecurityAuditor(target_url="http://localhost:11434")
+        auditor2 = OllamaSecurityAuditor(target_url="http://localhost:11434")
+
+        # Mock individual fetch functions to monitor invocation counts
+        with patch.object(auditor1, "_fetch_github_advisories", AsyncMock(return_value=[{"cve_id": "CVE-2024-TEST", "title": "Test CVE", "severity": Severity.CRITICAL, "affected_range": ">=0.0.0", "check_type": "endpoint_version_match", "description": "desc", "remediation": "rem"}])) as mock_github, \
+             patch.object(auditor1, "_fetch_nvd_advisories", AsyncMock(return_value=[])) as mock_nvd, \
+             patch.object(auditor1, "_fetch_exploitdb_advisories", AsyncMock(return_value=[])) as mock_exploitdb:
+
+            session = MagicMock()
+
+            # Run the fetch on first auditor instance
+            await auditor1._fetch_dynamic_advisories(session)
+
+            self.assertEqual(len(auditor1._dynamic_advisories_cache), 1)
+            self.assertEqual(auditor1._dynamic_advisories_cache[0]["cve_id"], "CVE-2024-TEST")
+            mock_github.assert_called_once()
+
+            # Now run on a second auditor instance. It should use the global cache.
+            # We mock the second auditor's individual fetchers too, but they should NOT be called.
+            with patch.object(auditor2, "_fetch_github_advisories", AsyncMock(return_value=[])) as mock_github2:
+                await auditor2._fetch_dynamic_advisories(session)
+
+                # Verify auditor2 also received the correct dynamic advisories
+                self.assertEqual(len(auditor2._dynamic_advisories_cache), 1)
+                self.assertEqual(auditor2._dynamic_advisories_cache[0]["cve_id"], "CVE-2024-TEST")
+
+                # Individual fetch methods shouldn't have been called on the second round
+                mock_github2.assert_not_called()
+
     async def test_report_generation(self):
         # Setup sample findings
         findings = [
