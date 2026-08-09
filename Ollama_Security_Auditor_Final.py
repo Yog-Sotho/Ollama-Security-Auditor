@@ -87,6 +87,16 @@ class CustomEncoder(json.JSONEncoder):
 # ==============================================================================
 # URL & IP UTILITIES
 # ==============================================================================
+def _ansi_color(text: str, color_code: str) -> str:
+    """Colorize text with ANSI escape codes, respecting TTY, NO_COLOR, and PYTEST."""
+    if not sys.stderr.isatty():
+        return text
+    if "NO_COLOR" in os.environ:
+        return text
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return text
+    return f"\033[{color_code}m{text}\033[0m"
+
 def resolve_target_url(target: str) -> str:
     """Resolves target to http://IP:11434 format with validation."""
     target = target.strip().rstrip('/')
@@ -995,15 +1005,15 @@ class OllamaSecurityAuditor:
 
         # Micro-UX: Console-friendly results summary
         print("\n" + "=" * 70, file=sys.stderr)
-        print("📊 AUDIT FINDINGS SUMMARY", file=sys.stderr)
+        print(_ansi_color("📊 AUDIT FINDINGS SUMMARY", "1;36"), file=sys.stderr)
         print("=" * 70, file=sys.stderr)
 
         severity_colors = {
-            Severity.CRITICAL: "🔴 [CRITICAL]",
-            Severity.HIGH: "🟠 [HIGH]    ",
-            Severity.MEDIUM: "🟡 [MEDIUM]  ",
-            Severity.LOW: "🔵 [LOW]     ",
-            Severity.INFO: "⚪ [INFO]     "
+            Severity.CRITICAL: f"🔴 {_ansi_color('[CRITICAL]', '1;31')}",
+            Severity.HIGH: f"🟠 {_ansi_color('[HIGH]    ', '1;33')}",
+            Severity.MEDIUM: f"🟡 {_ansi_color('[MEDIUM]  ', '1;33')}",
+            Severity.LOW: f"🔵 {_ansi_color('[LOW]     ', '1;34')}",
+            Severity.INFO: f"⚪ {_ansi_color('[INFO]     ', '1;36')}"
         }
 
         stats_line = " | ".join(f"{severity_colors[s].split()[0]} {s.value}: {self.stats[s.value]}" for s in Severity)
@@ -1012,25 +1022,25 @@ class OllamaSecurityAuditor:
 
         actionable_findings = [f for f in self.findings if f.status in (CheckStatus.VULNERABLE, CheckStatus.WARNING, CheckStatus.ERROR)]
         if actionable_findings:
-            print("⚠️  Action Required - Vulnerable/Warning/Error Findings:", file=sys.stderr)
+            print(_ansi_color("⚠️  Action Required - Vulnerable/Warning/Error Findings:", "1;31"), file=sys.stderr)
             severity_order = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4}
             sorted_actionable = sorted(actionable_findings, key=lambda x: severity_order.get(x.severity, 5))
             for f in sorted_actionable:
                 if f.status == CheckStatus.VULNERABLE:
                     status_lbl = "VULNERABLE"
-                    status_indicator = "❌ VULNERABLE"
+                    status_indicator = f"❌ {_ansi_color('VULNERABLE', '1;31')}"
                 elif f.status == CheckStatus.ERROR:
                     status_lbl = "ERROR"
-                    status_indicator = "💥 ERROR"
+                    status_indicator = f"💥 {_ansi_color('ERROR', '1;31')}"
                 else:
                     status_lbl = "WARNING"
-                    status_indicator = "⚠️ WARNING"
+                    status_indicator = f"⚠️ {_ansi_color('WARNING', '1;33')}"
                 cve_tag = f" [{f.cve_id}]" if f.cve_id else ""
                 print(f"  {severity_colors[f.severity]} {f.check_name}{cve_tag} ({status_indicator})", file=sys.stderr)
                 print(f"    └─ Details: {f.details}", file=sys.stderr)
                 print(f"    └─ Fix:     {f.remediation}", file=sys.stderr)
         else:
-            print("✅ All checked items are SECURE! No actions required.", file=sys.stderr)
+            print(f"✅ {_ansi_color('All checked items are SECURE! No actions required.', '1;32')}", file=sys.stderr)
 
         # Micro-UX: Inform user of the absolute path to extracted LLM configurations
         prompts_dir = "extracted_prompts"
@@ -1157,7 +1167,9 @@ class OllamaRangeScanner:
             pct = int(self.scanned_count / total_ips * 100)
             bar_len = 20
             filled_len = int(bar_len * self.scanned_count // total_ips)
-            bar = "█" * filled_len + "░" * (bar_len - filled_len)
+            bar_filled = _ansi_color("█" * filled_len, "32")
+            bar_empty = _ansi_color("░" * (bar_len - filled_len), "2;37")
+            bar = bar_filled + bar_empty
 
             # In-place terminal progress update
             sys.stderr.write(f"\r\033[K🔍 Scanning: [{bar}] {pct}% ({self.scanned_count}/{total_ips} IPs checked)")
@@ -1165,7 +1177,8 @@ class OllamaRangeScanner:
 
             if not is_open: return
 
-            sys.stderr.write(f"\r\033[K🔓 Port {port} Open on {ip}. Starting Audit...\n")
+            open_msg = _ansi_color(f"Port {port} Open", "1;32")
+            sys.stderr.write(f"\r\033[K🔓 {open_msg} on {ip}. Starting Audit...\n")
             sys.stderr.flush()
 
             target_url = f"http://{ip}:{port}"
