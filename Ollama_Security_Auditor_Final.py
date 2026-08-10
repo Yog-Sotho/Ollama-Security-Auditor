@@ -27,6 +27,7 @@ import logging
 from functools import lru_cache
 from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
+from functools import lru_cache
 from ipaddress import IPv4Network, IPv4Address
 from enum import Enum
 from dataclasses import dataclass
