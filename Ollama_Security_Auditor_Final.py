@@ -196,6 +196,43 @@ def _secure_write_file(filepath: str, content: str) -> None:
         raise
 
 # ==============================================================================
+# INPUT SANITIZATION UTILITIES
+# ==============================================================================
+def sanitize_version(val: str) -> str:
+    """Sanitizes version strings against CRLF, directory traversal, and injection breakout."""
+    if not val:
+        return ""
+    # Whitelist characters: digits, letters, dots, hyphens, plus, underscores
+    cleaned = "".join([c for c in val if c.isalnum() or c in ".+-_\n\r"])
+    # Strip CRLF/newlines to prevent log/HTTP injection
+    cleaned = cleaned.replace('\r', '').replace('\n', '')
+    # Double dot check to prevent path traversal
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", "_")
+    return cleaned
+
+def sanitize_model_name(val: str) -> str:
+    """Sanitizes model names safely using a character filter comprehension to preserve / and avoid re.sub."""
+    if not val:
+        return ""
+    # Whitelist characters: alphanumeric, dots, hyphens, underscores, colons, slashes
+    # Preserve / for namespace/model and : for tag, but block traversal
+    cleaned = "".join([c for c in val if c.isalnum() or c in ".-_:/"])
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", "_")
+    return cleaned
+
+def sanitize_digest(val: str) -> str:
+    """Sanitizes hash digests to prevent path traversal and CRLF injection."""
+    if not val:
+        return ""
+    # Whitelist alphanumeric, colons, hyphens
+    cleaned = "".join([c for c in val if c.isalnum() or c in ":-"])
+    while ".." in cleaned:
+        cleaned = cleaned.replace("..", "_")
+    return cleaned
+
+# ==============================================================================
 # VERSION UTILITIES & CVE REGISTRY
 # ==============================================================================
 @lru_cache(maxsize=128)
@@ -426,7 +463,7 @@ class OllamaSecurityAuditor:
         status, body, full_url = await self._safe_request(session, "GET", version_endpoint)
         
         if status == 200 and body and "version" in body:
-            self.detected_version = body.get("version", "unknown")
+            self.detected_version = sanitize_version(body.get("version", "unknown"))
             return AuditFinding(
                 check_name="API Connectivity & Version Detection", severity=Severity.INFO, status=CheckStatus.SECURE,
                 details=f"Ollama API reachable. Detected Version: {self.detected_version}",
@@ -548,12 +585,18 @@ class OllamaSecurityAuditor:
         # 1. Installed Models (/api/tags)
         s, b, _ = await self._safe_request(session, "GET", "/api/tags")
         if s == 200 and b and "models" in b:
-            self.discovered_models = [m.get("name", "unknown") for m in b["models"]]
+            self.discovered_models = [sanitize_model_name(m.get("name", "unknown")) for m in b["models"]]
         
         # 2. Loaded Models (/api/ps)
         s, b, _ = await self._safe_request(session, "GET", "/api/ps")
         if s == 200 and b and "models" in b:
-            self.loaded_models = b["models"]
+            # Loaded models need sanitization of their nested model name
+            self.loaded_models = []
+            for m in b["models"]:
+                sanitized_m = dict(m)
+                if "name" in sanitized_m:
+                    sanitized_m["name"] = sanitize_model_name(sanitized_m["name"])
+                self.loaded_models.append(sanitized_m)
 
     async def check_known_cves(self, session: aiohttp.ClientSession) -> List[AuditFinding]:
         """Check for known CVE vulnerabilities using version matching."""
@@ -701,7 +744,7 @@ class OllamaSecurityAuditor:
         os.makedirs(prompts_dir, exist_ok=True)
 
         for model in models:
-            model_name = model.get("name", "unknown")
+            model_name = sanitize_model_name(model.get("name", "unknown"))
             status, config_body, _ = await self._safe_request(
                 session, "POST", "/api/show", json_payload={"name": model_name}, timeout_override=30.0
             )
@@ -811,8 +854,8 @@ class OllamaSecurityAuditor:
             return AuditFinding(check_name="Model Weight Exfiltration", severity=Severity.INFO, status=CheckStatus.SKIPPED, details="No models found to probe.", remediation="N/A")
             
         test_model = body["models"][0]
-        digest = test_model.get("digest", "")
-        if not digest.startswith("sha256:"): digest = f"sha256:{digest}"
+        digest = sanitize_digest(test_model.get("digest", ""))
+        if digest and not digest.startswith("sha256:"): digest = f"sha256:{digest}"
             
         blob_url = f"/api/blobs/{digest}"
         b_status, _, _ = await self._safe_request(session, "GET", blob_url, read_body=False)
@@ -887,7 +930,7 @@ class OllamaSecurityAuditor:
         ]
         
         for model in body.get("models", [])[:3]:
-            m_name = model.get("name")
+            m_name = sanitize_model_name(model.get("name"))
             _, cfg, _ = await self._safe_request(session, "POST", "/api/show", json_payload={"name": m_name})
             if cfg and "system" in cfg:
                 prompt = cfg["system"]

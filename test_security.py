@@ -239,6 +239,21 @@ class TestOllamaAuditorSecurity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, {"status": "ok"})
 
+    def test_input_sanitization_helpers(self):
+        """Test that sanitization utilities protect against injection and breakout."""
+        from Ollama_Security_Auditor_Final import sanitize_version, sanitize_model_name, sanitize_digest
+        # Version string check
+        self.assertEqual(sanitize_version("0.1.48\r\n"), "0.1.48")
+        self.assertEqual(sanitize_version("0.1.48../../breakout"), "0.1.48__breakout")
+
+        # Model name check (preserving namespace slashes and colon tags)
+        self.assertEqual(sanitize_model_name("namespace/model:latest"), "namespace/model:latest")
+        self.assertEqual(sanitize_model_name("llama3:latest../../traversal"), "llama3:latest_/_/traversal")
+
+        # Digest hash check
+        self.assertEqual(sanitize_digest("sha256:1234567890abcdef"), "sha256:1234567890abcdef")
+        self.assertEqual(sanitize_digest("sha256:123..456"), "sha256:123456")
+
     async def test_external_advisories_use_safe_request(self):
         """Test that _fetch_github_advisories, _fetch_nvd_advisories, and _fetch_exploitdb_advisories leverage _safe_request."""
         with patch.object(self.auditor, "_safe_request", AsyncMock()) as mock_safe_request:
