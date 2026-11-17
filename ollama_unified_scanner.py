@@ -600,6 +600,211 @@ CVE_REGISTRY: List[Dict[str, Any]] = [
         "remediation": "Upgrade Ollama binary.",
         "indicator": "Version <0.4.0",
     },
+    # -------------------------------------------------------------------------
+    # 2024 — file disclosure / path traversal cluster (fixed <0.1.47)
+    # -------------------------------------------------------------------------
+    {
+        "cve_id": "CVE-2024-39719",
+        "title": "Arbitrary File Read via /api/push",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.1.47",
+        "check_type": "endpoint_version_match",
+        "description": "The /api/push endpoint allows reading arbitrary files from the server filesystem via unsanitized model path parameter.",
+        "remediation": "Upgrade to >=0.1.47.",
+        "indicator": "Version <0.1.47",
+    },
+    {
+        "cve_id": "CVE-2024-39720",
+        "title": "Path Traversal via /api/push Model Path",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.1.47",
+        "check_type": "endpoint_version_match",
+        "description": "Path traversal in the model path parameter of /api/push allows reading files outside the model storage directory.",
+        "remediation": "Upgrade to >=0.1.47.",
+        "indicator": "Version <0.1.47",
+    },
+    {
+        "cve_id": "CVE-2024-39721",
+        "title": "DoS via CreateModel Infinite Retry Loop",
+        "severity": Severity.MEDIUM,
+        "affected_range": ">=0.1.0,<0.1.47",
+        "check_type": "endpoint_version_match",
+        "description": "Repeated calls to /api/create can trigger an infinite retry loop causing resource exhaustion and denial of service.",
+        "remediation": "Upgrade to >=0.1.47.",
+        "indicator": "Version <0.1.47",
+    },
+    # -------------------------------------------------------------------------
+    # 2025 — access control and auth cluster
+    # -------------------------------------------------------------------------
+    {
+        "cve_id": "CVE-2025-0312",
+        "title": "Unauthenticated Model Management Access",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.5.11",
+        "check_type": "endpoint_version_match",
+        "description": "Missing authorization on model management endpoints allows unauthenticated arbitrary model deletion and copying.",
+        "remediation": "Upgrade to >=0.5.11. Restrict API access with a reverse proxy.",
+        "indicator": "Version <0.5.11",
+    },
+    {
+        "cve_id": "CVE-2025-1975",
+        "title": "Unauthenticated RCE via Crafted Modelfile",
+        "severity": Severity.CRITICAL,
+        "affected_range": ">=0.1.0,<0.5.11",
+        "check_type": "endpoint_version_match",
+        "description": "An unauthenticated user can submit a crafted Modelfile to /api/create that triggers arbitrary command execution on the server.",
+        "remediation": "Upgrade to >=0.5.11. Never expose Ollama to untrusted networks.",
+        "indicator": "Version <0.5.11",
+    },
+    {
+        "cve_id": "CVE-2025-51471",
+        "title": "Cross-Domain Registry Token Theft",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<=0.9.6",
+        "check_type": "behavioral_probe",
+        "description": (
+            "When pulling a model, Ollama forwards registry authentication tokens to any "
+            "registry domain that issues a WWW-Authenticate challenge. An attacker-controlled "
+            "registry can steal credentials for registry.ollama.ai or private registries. "
+            "No upstream fix available."
+        ),
+        "remediation": "No upstream fix as of 2025-11-17. Block /api/pull from untrusted clients. Pin model sources to trusted registries.",
+        "indicator": "WWW-Authenticate realm mismatch accepted by client",
+    },
+    {
+        "cve_id": "CVE-2025-63389",
+        "title": "Critical Authentication Bypass via Header Injection",
+        "severity": Severity.CRITICAL,
+        "affected_range": ">=0.1.0,<=0.13.5",
+        "check_type": "behavioral_probe",
+        "description": (
+            "Authentication middleware can be bypassed by injecting specific header combinations, "
+            "granting unauthenticated users full administrative API access. No upstream fix available."
+        ),
+        "remediation": "No upstream fix as of 2025-11-17. Enforce authentication at reverse proxy layer. Isolate behind VPN.",
+        "indicator": "Unauthenticated admin access via header injection",
+    },
+    # -------------------------------------------------------------------------
+    # 2026 — GGUF parser, Windows updater, SSRF, agent RCE cluster
+    # -------------------------------------------------------------------------
+    {
+        "cve_id": "CVE-2026-7482",
+        "title": "Bleeding Llama: GGUF Heap Out-of-Bounds Read",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.17.1",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "A crafted GGUF model file triggers a heap out-of-bounds read in the GGUF loader "
+            "(CVSS 8.8–9.1). Affects any Ollama instance that loads user-supplied model files."
+        ),
+        "remediation": "Upgrade to >=0.17.1.",
+        "indicator": "Version <0.17.1",
+    },
+    {
+        "cve_id": "CVE-2026-42248",
+        "title": "Windows Auto-Updater Path Traversal RCE",
+        "severity": Severity.CRITICAL,
+        "affected_range": ">=0.12.10,<=0.17.5",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "The Windows auto-update mechanism downloads and executes update packages without "
+            "sufficient path validation (CVSS 9.8). A MitM or malicious update server achieves "
+            "arbitrary code execution at the Ollama service privilege level."
+        ),
+        "remediation": "No upstream fix as of 2026-11-17. Disable automatic updates on Windows. Pin binary hash.",
+        "indicator": "Version >=0.12.10,<=0.17.5 (Windows platform)",
+    },
+    {
+        "cve_id": "CVE-2026-42249",
+        "title": "Windows Auto-Updater Code Signing Bypass",
+        "severity": Severity.CRITICAL,
+        "affected_range": ">=0.12.10,<=0.17.5",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "Companion to CVE-2026-42248. The updater does not enforce Authenticode verification on "
+            "downloaded payloads, allowing tampered binaries to be installed (CVSS 9.8)."
+        ),
+        "remediation": "No upstream fix as of 2026-11-17. Use managed deployment and block outbound update URLs.",
+        "indicator": "Version >=0.12.10,<=0.17.5 (Windows platform)",
+    },
+    {
+        "cve_id": "CVE-2026-5530",
+        "title": "SSRF via Model Pull API (Expanded Attack Surface)",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.35.0",
+        "check_type": "behavioral_probe",
+        "description": (
+            "The /api/pull endpoint performs HTTP requests to attacker-controlled URLs without "
+            "sufficient SSRF protections, allowing internal network probing."
+        ),
+        "remediation": "Upgrade to >=0.35.0. Block /api/pull from untrusted clients.",
+        "indicator": "SSRF via /api/pull name parameter to RFC1918 addresses",
+    },
+    {
+        "cve_id": "CVE-2026-85180",
+        "title": "SSRF via Model Registry Open Redirect",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.35.0",
+        "check_type": "behavioral_probe",
+        "description": (
+            "HTTP redirects from model registry manifests are followed without origin validation, "
+            "enabling SSRF to internal services (CVSS 7.5–8.7)."
+        ),
+        "remediation": "Upgrade to >=0.35.0.",
+        "indicator": "Open redirect followed during model pull manifest fetch",
+    },
+    {
+        "cve_id": "CVE-2026-65315",
+        "title": "Uncontrolled Memory Allocation in GGUF Parser",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.17.1",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "Oversized tensor dimension fields in GGUF metadata cause uncontrolled heap allocation "
+            "leading to OOM crash or server denial of service."
+        ),
+        "remediation": "Upgrade to >=0.17.1.",
+        "indicator": "Version <0.17.1",
+    },
+    {
+        "cve_id": "CVE-2026-86289",
+        "title": "Integer Overflow in GGUF Tensor Decoder",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.1.0,<0.17.1",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "Integer overflow in GGUF tensor dimension product computation allows crafted models "
+            "to cause heap corruption or remote code execution."
+        ),
+        "remediation": "Upgrade to >=0.17.1.",
+        "indicator": "Version <0.17.1",
+    },
+    {
+        "cve_id": "CVE-2026-102697",
+        "title": "Unauthenticated RCE via Experimental Agent Bash Endpoint",
+        "severity": Severity.CRITICAL,
+        "affected_range": ">=0.14.0,<0.17.0",
+        "check_type": "behavioral_probe",
+        "description": (
+            "The experimental agent bash tool endpoint (/api/agent/run) lacks authorization checks, "
+            "allowing unauthenticated users to execute arbitrary shell commands on the server."
+        ),
+        "remediation": "Upgrade to >=0.17.0. Disable experimental agent features in production.",
+        "indicator": "/api/agent/run accessible without authentication",
+    },
+    {
+        "cve_id": "CVE-2026-103663",
+        "title": "Path Traversal via /api/pull Digest Parameter",
+        "severity": Severity.HIGH,
+        "affected_range": ">=0.34.2,<0.35.0",
+        "check_type": "endpoint_version_match",
+        "description": (
+            "The digest field in /api/pull responses is used in a filesystem path without sanitization, "
+            "enabling path traversal to overwrite arbitrary files."
+        ),
+        "remediation": "Upgrade to >=0.35.0.",
+        "indicator": "Version >=0.34.2,<0.35.0",
+    },
 ]
 
 
@@ -1257,6 +1462,147 @@ class OllamaSecurityAuditor:
             remediation="Consider implementing API rate limiting.",
         )
 
+    async def check_model_pull_ssrf(self, session: aiohttp.ClientSession) -> AuditFinding:
+        """CVE-2024-39722 / CVE-2026-5530 / CVE-2026-85180 — SSRF via /api/pull name param."""
+        if not self.deep_mode:
+            return AuditFinding(
+                check_name="Model Pull SSRF",
+                severity=Severity.INFO,
+                status=CheckStatus.SKIPPED,
+                details="Skipped (requires --deep mode).",
+                remediation="Run with --deep to enable.",
+            )
+        ssrf_targets = [
+            "http://192.168.0.1/ssrf-probe",
+            "http://10.0.0.1/ssrf-probe",
+            "http://172.16.0.1/ssrf-probe",
+        ]
+        for target in ssrf_targets:
+            s, b, _ = await self._safe_request(
+                session, "POST", "/api/pull",
+                json_payload={"name": target, "stream": False},
+            )
+            body_str = str(b or "")
+            if s == 200 and any(tok in body_str for tok in ("pulling", "manifest", "digest")):
+                return AuditFinding(
+                    check_name="Model Pull SSRF",
+                    severity=Severity.CRITICAL,
+                    status=CheckStatus.VULNERABLE,
+                    cve_id="CVE-2026-5530",
+                    details=f"Server issued SSRF request to internal host: {target}",
+                    remediation="Block /api/pull from untrusted clients. Upgrade to >=0.35.0.",
+                    evidence={"ssrf_target": target, "response": body_str[:300]},
+                )
+        return AuditFinding(
+            check_name="Model Pull SSRF",
+            severity=Severity.LOW,
+            status=CheckStatus.SECURE,
+            details="SSRF via /api/pull not triggered on RFC1918 probes.",
+            remediation="Maintain network egress restrictions. Upgrade to >=0.35.0.",
+        )
+
+    async def check_registry_token_theft(self, session: aiohttp.ClientSession) -> AuditFinding:
+        """CVE-2025-51471 — Cross-domain registry token theft via crafted WWW-Authenticate."""
+        if self.detected_version and _version_in_range(self.detected_version, ">=0.1.0,<=0.9.6"):
+            return AuditFinding(
+                check_name="Registry Token Theft",
+                severity=Severity.HIGH,
+                status=CheckStatus.VULNERABLE,
+                cve_id="CVE-2025-51471",
+                details=(
+                    f"Version {self.detected_version} is in unpatched range (<=0.9.6). "
+                    "Ollama forwards registry auth tokens to any WWW-Authenticate challenger, "
+                    "enabling credential theft via attacker-controlled registry. No upstream fix."
+                ),
+                remediation="Block /api/pull from untrusted clients. Use an allow-list for registry hostnames.",
+                evidence={"version": self.detected_version, "affected_range": ">=0.1.0,<=0.9.6"},
+            )
+        return AuditFinding(
+            check_name="Registry Token Theft",
+            severity=Severity.LOW,
+            status=CheckStatus.SECURE,
+            cve_id="CVE-2025-51471",
+            details=(
+                f"Version {self.detected_version} is outside CVE-2025-51471 range."
+                if self.detected_version else "Ollama version not detected; manual check recommended."
+            ),
+            remediation="Keep Ollama up to date. Restrict /api/pull to trusted clients.",
+        )
+
+    async def check_gguf_oom(self, session: aiohttp.ClientSession) -> AuditFinding:
+        """CVE-2026-65315 / CVE-2026-86289 — GGUF OOM and integer overflow, version-range check."""
+        if self.detected_version and _version_in_range(self.detected_version, ">=0.1.0,<0.17.1"):
+            return AuditFinding(
+                check_name="GGUF Parser OOM / Integer Overflow",
+                severity=Severity.HIGH,
+                status=CheckStatus.VULNERABLE,
+                cve_id="CVE-2026-86289",
+                details=(
+                    f"Version {self.detected_version} is affected by GGUF parser vulnerabilities: "
+                    "CVE-2026-65315 (uncontrolled memory allocation) and CVE-2026-86289 "
+                    "(integer overflow in tensor decoder). A crafted model file can OOM-crash or "
+                    "corrupt heap memory."
+                ),
+                remediation="Upgrade to >=0.17.1. Never load untrusted GGUF files.",
+                evidence={"version": self.detected_version, "affected_range": ">=0.1.0,<0.17.1"},
+            )
+        return AuditFinding(
+            check_name="GGUF Parser OOM / Integer Overflow",
+            severity=Severity.LOW,
+            status=CheckStatus.SECURE,
+            cve_id="CVE-2026-86289",
+            details=(
+                f"Version {self.detected_version} is outside GGUF parser vulnerability range."
+                if self.detected_version else "Ollama version not detected; manual check recommended."
+            ),
+            remediation="Upgrade to >=0.17.1.",
+        )
+
+    async def check_agent_rce(self, session: aiohttp.ClientSession) -> AuditFinding:
+        """CVE-2026-102697 — Unauthenticated RCE via experimental agent bash endpoint."""
+        s, b, _ = await self._safe_request(
+            session, "POST", "/api/agent/run",
+            json_payload={"command": "id", "stream": False},
+        )
+        body_str = str(b or "")
+        if s == 200:
+            if any(tok in body_str for tok in ("uid=", "root", "user")):
+                return AuditFinding(
+                    check_name="Agent Bash RCE",
+                    severity=Severity.CRITICAL,
+                    status=CheckStatus.VULNERABLE,
+                    cve_id="CVE-2026-102697",
+                    details="Unauthenticated RCE confirmed: /api/agent/run executed 'id' without auth.",
+                    remediation="Upgrade to >=0.17.0. Disable experimental agent features in production.",
+                    evidence={"endpoint": "/api/agent/run", "response": body_str[:300]},
+                )
+            return AuditFinding(
+                check_name="Agent Bash RCE",
+                severity=Severity.HIGH,
+                status=CheckStatus.WARNING,
+                cve_id="CVE-2026-102697",
+                details="/api/agent/run returned HTTP 200 without recognizable RCE output — endpoint may be active.",
+                remediation="Upgrade to >=0.17.0. Disable experimental agent features.",
+                evidence={"endpoint": "/api/agent/run", "response": body_str[:200]},
+            )
+        if s == 404:
+            return AuditFinding(
+                check_name="Agent Bash RCE",
+                severity=Severity.LOW,
+                status=CheckStatus.SECURE,
+                cve_id="CVE-2026-102697",
+                details="/api/agent/run not present (HTTP 404).",
+                remediation="Upgrade to >=0.17.0 to ensure experimental agent RCE is patched.",
+            )
+        return AuditFinding(
+            check_name="Agent Bash RCE",
+            severity=Severity.INFO,
+            status=CheckStatus.SKIPPED,
+            cve_id="CVE-2026-102697",
+            details=f"/api/agent/run returned HTTP {s}; inconclusive.",
+            remediation="Upgrade to >=0.17.0 and disable experimental agent features.",
+        )
+
     # -------------------------------------------------------------------------
     # Model config extraction
     # -------------------------------------------------------------------------
@@ -1396,11 +1742,16 @@ class OllamaSecurityAuditor:
             self._run_probe(self.check_token_brute(session), "Token Brute-Force"),
             self._run_probe(self.check_prompt_injection_leakage(session), "Prompt Injection"),
             self._run_probe(self.extract_model_configs(session), "Model Config Extraction"),
+            self._run_probe(self.check_model_pull_ssrf(session), "Model Pull SSRF"),
+            self._run_probe(self.check_registry_token_theft(session), "Registry Token Theft"),
+            self._run_probe(self.check_gguf_oom(session), "GGUF OOM"),
+            self._run_probe(self.check_agent_rce(session), "Agent RCE"),
             return_exceptions=True,
         )
 
         ops = [("append",), ("append",), ("append",), ("append",),
-               ("append",), ("extend",), ("extend",)]
+               ("append",), ("extend",), ("extend",),
+               ("append",), ("append",), ("append",), ("append",)]
         for (op,), result in zip(ops, raw):
             if isinstance(result, Exception):
                 logger.error(f"Probe failed: {result}")
